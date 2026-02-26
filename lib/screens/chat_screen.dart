@@ -22,13 +22,27 @@ class ChatScreen extends ConsumerWidget {
         return Scaffold(
           appBar: isLargeScreen
               ? null
-              : AppBar(title: const Text('Ultrawork Chatbot')),
-          drawer: isLargeScreen ? null : const Drawer(child: Sidebar()),
+              : AppBar(
+                  title: const Text(
+                    'Instructional Tutoring System',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+          drawer: isLargeScreen
+              ? null
+              : const Drawer(
+                  width: 280,
+                  child: Sidebar(),
+                ),
           body: Row(
             children: [
               if (isLargeScreen) const Sidebar(),
-              const VerticalDivider(width: 1),
-              const Expanded(child: ChatView()),
+              Expanded(
+                child: Container(
+                  color: Theme.of(context).colorScheme.surface,
+                  child: const ChatView(),
+                ),
+              ),
             ],
           ),
         );

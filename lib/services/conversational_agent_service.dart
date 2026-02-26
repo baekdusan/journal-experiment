@@ -374,9 +374,10 @@ class ConversationalAgentService {
     [대화 원칙]
     1) 이미 파악된 정보는 다시 묻지 마라.
     2) 사용자가 이미 답한 정보는 extracted_info에 반드시 반영하라.
-    3) 필수 정보(subject, goal, level, tone_preference)가 모두 파악되면:
-      - 사용자에게 "로드맵(학습 계획)을 만들겠다"고 안내하라.
-      - 추가 질문은 하지 마라.
+    3) 필수 정보(subject, goal, level, tone_preference)가 모두 파악되어도
+      "이제 로드맵을 만들겠다"는 식의 확정 문구는 직접 말하지 마라.
+      최종 생성 시작 안내는 시스템이 별도로 처리한다.
+      추가 질문은 하지 마라.
     4) 현재 정보가 '미정'이면 그 정보를 얻기 위한 질문을 우선하라.
     5) 사용자가 명시적으로 언급하지 않은 값은 절대 추측하지 말고 null로 두어라.
     6) explicit_fields에 true로 표시된 항목만 extracted_info에 값을 채우고, 나머지는 null로 두어라.

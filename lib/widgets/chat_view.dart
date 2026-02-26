@@ -80,9 +80,12 @@ class _ChatViewState extends ConsumerState<ChatView> {
           _buildSyllabusHeader(context, learningState),
         _buildStatusBanner(context, learningState),
         Expanded(
-          child: session == null || session.messages.isEmpty
-              ? _buildWelcome(context)
-              : _buildMessageList(session),
+          child: Container(
+            color: const Color(0xFFF7F7F8),
+            child: session == null || session.messages.isEmpty
+                ? _buildWelcome(context)
+                : _buildMessageList(session),
+          ),
         ),
         const ChatInput(),
       ],
@@ -866,19 +869,17 @@ class _ChatViewState extends ConsumerState<ChatView> {
   Widget _buildWelcome(BuildContext context) {
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 800),
+        constraints: const BoxConstraints(maxWidth: 820),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.auto_awesome,
-              size: 64,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
             Text(
-              'How can I help you today?',
-              style: Theme.of(context).textTheme.headlineMedium,
+              '무엇을 도와드릴까요?',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF2D2D2F),
+                  ),
             ),
           ],
         ),
@@ -889,14 +890,14 @@ class _ChatViewState extends ConsumerState<ChatView> {
   Widget _buildMessageList(ChatSession session) {
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 20),
+      padding: const EdgeInsets.symmetric(vertical: 18),
       itemCount: session.messages.length,
       itemBuilder: (context, index) {
         final message = session.messages[index];
         return Center(
           key: ValueKey(message.id),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
+            constraints: const BoxConstraints(maxWidth: 820),
             child: MessageBubble(message: message),
           ),
         );

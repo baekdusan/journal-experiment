@@ -35,27 +35,24 @@ class MessageBubble extends ConsumerWidget {
         : message.content;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment:
             isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          if (!isUser) ...[_buildAvatar(context), const SizedBox(width: 12)],
+          if (!isUser) ...[_buildAvatar(context), const SizedBox(width: 14)],
           Flexible(
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 600),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              constraints: const BoxConstraints(maxWidth: 720),
+              padding: EdgeInsets.symmetric(
+                horizontal: isUser ? 16 : 0,
+                vertical: isUser ? 12 : 2,
+              ),
               decoration: BoxDecoration(
-                color: isUser
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(isUser ? 20 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 20),
-                ),
+                color: isUser ? const Color(0xFF343541) : Colors.transparent,
+                borderRadius:
+                    isUser ? BorderRadius.circular(20) : BorderRadius.zero,
               ),
               child: _buildContent(context, theme, isUser, displayContent),
             ),
@@ -79,9 +76,7 @@ class MessageBubble extends ConsumerWidget {
       return Text(
         effectiveContent,
         style: theme.textTheme.bodyLarge?.copyWith(
-          color: isUser
-              ? theme.colorScheme.onPrimary
-              : theme.colorScheme.onSurfaceVariant,
+          color: isUser ? Colors.white : theme.colorScheme.onSurfaceVariant,
           height: 1.5,
         ),
       );
@@ -98,8 +93,8 @@ class MessageBubble extends ConsumerWidget {
   /// Material 3 테마와 일치하는 마크다운 스타일시트를 생성한다.
   MarkdownStyleSheet _buildMarkdownStyleSheet(ThemeData theme) {
     final baseTextStyle = theme.textTheme.bodyLarge?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-      height: 1.5,
+      color: const Color(0xFF1F1F1F),
+      height: 1.6,
     );
 
     return MarkdownStyleSheet(
@@ -135,11 +130,11 @@ class MessageBubble extends ConsumerWidget {
       // 코드
       code: theme.textTheme.bodyMedium?.copyWith(
         fontFamily: 'monospace',
-        backgroundColor: theme.colorScheme.surfaceContainer,
-        color: theme.colorScheme.onSurfaceVariant,
+        backgroundColor: const Color(0xFFECECF1),
+        color: const Color(0xFF1F1F1F),
       ),
       codeblockDecoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
+        color: const Color(0xFFECECF1),
         borderRadius: BorderRadius.circular(8),
       ),
       codeblockPadding: const EdgeInsets.all(12),
@@ -149,7 +144,7 @@ class MessageBubble extends ConsumerWidget {
 
       // 링크
       a: baseTextStyle?.copyWith(
-        color: theme.colorScheme.primary,
+        color: const Color(0xFF0B57D0),
         decoration: TextDecoration.underline,
       ),
 
@@ -159,12 +154,12 @@ class MessageBubble extends ConsumerWidget {
 
       // 인용구
       blockquote: baseTextStyle?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant.withOpacity(0.8),
+        color: const Color(0xFF4D4F5A),
       ),
       blockquoteDecoration: BoxDecoration(
         border: Border(
           left: BorderSide(
-            color: theme.colorScheme.primary,
+            color: const Color(0xFF10A37F),
             width: 4,
           ),
         ),
@@ -178,13 +173,17 @@ class MessageBubble extends ConsumerWidget {
   }
 
   Widget _buildAvatar(BuildContext context) {
-    return CircleAvatar(
-      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      radius: 16,
-      child: Icon(
-        Icons.smart_toy_outlined,
-        size: 18,
-        color: Theme.of(context).colorScheme.primary,
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(7),
+        color: const Color(0xFF10A37F),
+      ),
+      child: const Icon(
+        Icons.auto_awesome_rounded,
+        size: 16,
+        color: Colors.white,
       ),
     );
   }

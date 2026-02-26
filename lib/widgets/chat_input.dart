@@ -55,30 +55,27 @@ class _ChatInputState extends State<ChatInput> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
-      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+      decoration: const BoxDecoration(color: Color(0xFFF7F7F8)),
       child: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
+            constraints: const BoxConstraints(maxWidth: 820),
             child: Consumer(
               builder: (context, ref, child) {
                 final isDesigning = ref
                     .watch(learningStateProvider)
                     .isDesigning;
-                final theme = Theme.of(context);
 
                 return Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
+                    horizontal: 14,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.5),
-                    ),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(color: const Color(0xFFD9D9E3)),
                   ),
                   child: Row(
                     children: [
@@ -101,8 +98,8 @@ class _ChatInputState extends State<ChatInput> {
                             keyboardType: TextInputType.multiline,
                             decoration: InputDecoration(
                               hintText: 'Type a message...',
-                              hintStyle: TextStyle(
-                                color: theme.colorScheme.onSurfaceVariant,
+                              hintStyle: const TextStyle(
+                                color: Color(0xFF8E8EA0),
                               ),
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(
@@ -118,8 +115,8 @@ class _ChatInputState extends State<ChatInput> {
                         onPressed: isDesigning ? null : () => _submit(ref),
                         icon: const Icon(Icons.arrow_upward_rounded),
                         style: IconButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: theme.colorScheme.onPrimary,
+                          backgroundColor: const Color(0xFF343541),
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.all(8),
                         ),
                       ),

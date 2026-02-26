@@ -367,9 +367,6 @@ class ChatController extends _$ChatController {
         'tone': result.tonePreference?.name,
       });
 
-      // 사용자에게 응답 표시
-      _appendAssistantMessage(sessionId, result.response);
-
       // ============================================================
       // 3. 추출된 정보로 학습 상태 업데이트
       // ============================================================
@@ -417,6 +414,23 @@ class ChatController extends _$ChatController {
           updated.learnerProfile.isLearnerProfileFilled &&
           !updated.instructionalDesign.isDesignFilled &&
           (forceAnalyst || !wasMandatory);
+
+      // ============================================================
+      // 7. 사용자 응답 표시: 로드맵 생성 안내는 앱 상태 기준으로만 제어
+      // ============================================================
+      if (shouldTriggerDesign) {
+        _appendAssistantMessage(
+          sessionId,
+          '좋아요. 필요한 정보를 확인했어요. 이제 학습 로드맵을 만들고 바로 수업을 시작할게요.',
+        );
+      } else {
+        final safeResponse = _sanitizeAnalystResponse(
+          response: result.response,
+          state: updated,
+        );
+        _appendAssistantMessage(sessionId, safeResponse);
+      }
+
       if (shouldTriggerDesign) {
         _startSyllabusDesign(sessionId, isRedesign: false);
       }
@@ -685,13 +699,16 @@ class ChatController extends _$ChatController {
     unawaited(ref.read(learningStateProvider.notifier).setDesigning(true));
 
     // 커리큘럼 생성 시작 추적
+    final designStartChanges = <String, dynamic>{
+      'isRedesign': isRedesign,
+    };
+    if (redesignRequest != null) {
+      designStartChanges['redesignRequest'] = redesignRequest;
+    }
     _recordStateChange(
       sessionId,
       StateChangeType.syllabusGenerationStarted,
-      {
-        'isRedesign': isRedesign,
-        if (redesignRequest != null) 'redesignRequest': redesignRequest,
-      },
+      designStartChanges,
     );
 
     // ============================================================
@@ -875,6 +892,50 @@ class ChatController extends _$ChatController {
         .where((m) => m.role == MessageRole.model)
         .toList();
     return tutorMessages.isEmpty ? null : tutorMessages.last.content;
+  }
+
+  String _sanitizeAnalystResponse({
+    required String response,
+    required LearningState state,
+  }) {
+    final normalized = response.trim();
+    final mentionsRoadmap = RegExp(
+      r'로드맵|학습 계획|커리큘럼',
+      caseSensitive: false,
+    ).hasMatch(normalized);
+
+    if (!state.learnerProfile.isLearnerProfileFilled && mentionsRoadmap) {
+      return _buildMissingProfilePrompt(state);
+    }
+
+    if (normalized.isEmpty) {
+      return _buildMissingProfilePrompt(state);
+    }
+
+    return normalized;
+  }
+
+  String _buildMissingProfilePrompt(LearningState state) {
+    final profile = state.learnerProfile;
+    final missing = <String>[];
+    if (profile.subject == null || profile.subject!.trim().isEmpty) {
+      missing.add('무엇을 배우고 싶은지');
+    }
+    if (profile.goal == null || profile.goal!.trim().isEmpty) {
+      missing.add('배워서 무엇을 하고 싶은지');
+    }
+    if (profile.level == null) {
+      missing.add('현재 학습 수준');
+    }
+    if (profile.tonePreference == null) {
+      missing.add('원하는 대화 말투');
+    }
+
+    if (missing.isEmpty) {
+      return '좋아요. 필요한 정보를 정리하고 있어요.';
+    }
+
+    return '좋아요. 로드맵을 만들기 전에 ${missing.join(', ')} 알려주세요.';
   }
 
   /// ============================================================

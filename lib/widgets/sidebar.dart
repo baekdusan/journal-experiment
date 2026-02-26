@@ -66,22 +66,31 @@ class _SidebarState extends ConsumerState<Sidebar> {
   Widget build(BuildContext context) {
     final sessions = ref.watch(chatSessionsProvider);
     final activeId = ref.watch(activeSessionIdProvider);
+    const sidebarColor = Color(0xFF171717);
+    const activeItemColor = Color(0xFF2A2B32);
+    const textColor = Color(0xFFEDEDED);
+    const mutedColor = Color(0xFFA6A7B0);
 
     return Container(
-      width: 300,
-      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+      width: 280,
+      color: sidebarColor,
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton.icon(
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+            child: OutlinedButton.icon(
               onPressed: () {
                 ref.read(chatControllerProvider.notifier).createNewSession();
               },
               icon: const Icon(Icons.add),
               label: const Text('New Chat'),
-              style: ElevatedButton.styleFrom(
+              style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
+                foregroundColor: textColor,
+                side: const BorderSide(color: Color(0xFF3B3D47)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
               ),
             ),
           ),
@@ -99,8 +108,21 @@ class _SidebarState extends ConsumerState<Sidebar> {
                     session.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: textColor,
+                      fontSize: 14,
+                    ),
                   ),
                   selected: isActive,
+                  selectedTileColor: activeItemColor,
+                  tileColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
+                  ),
                   onTap: () {
                     ref.read(activeSessionIdProvider.notifier).set(session.id);
                   },
@@ -112,11 +134,18 @@ class _SidebarState extends ConsumerState<Sidebar> {
                         const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: mutedColor,
+                          ),
                         )
                       else
                         IconButton(
-                          icon: const Icon(Icons.download, size: 16),
+                          icon: const Icon(
+                            Icons.download,
+                            size: 16,
+                            color: mutedColor,
+                          ),
                           onPressed: () => _handleDownload(session.id),
                           tooltip: '세션 다운로드',
                           padding: EdgeInsets.zero,
@@ -125,7 +154,11 @@ class _SidebarState extends ConsumerState<Sidebar> {
                       const SizedBox(width: 8),
                       // 활성 세션 표시
                       if (isActive)
-                        const Icon(Icons.chat_bubble_outline, size: 16),
+                        const Icon(
+                          Icons.chat_bubble_outline,
+                          size: 16,
+                          color: mutedColor,
+                        ),
                     ],
                   ),
                 );

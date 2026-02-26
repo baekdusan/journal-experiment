@@ -23,24 +23,44 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const chatBg = Color(0xFFF7F7F8);
+    const sidebarBg = Color(0xFF171717);
+
     return MaterialApp(
       title: 'Instructional Tutoring System',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'Apple SD Gothic Neo',
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.light,
+        scaffoldBackgroundColor: chatBg,
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF10A37F),
+          onPrimary: Colors.white,
+          surface: chatBg,
+          onSurface: Color(0xFF1F1F1F),
+          surfaceContainerHighest: Color(0xFFECECF1),
+          onSurfaceVariant: Color(0xFF666870),
+          outlineVariant: Color(0xFFD9D9E3),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: chatBg,
+          foregroundColor: Color(0xFF1F1F1F),
+          elevation: 0,
         ),
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
         fontFamily: 'Apple SD Gothic Neo',
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-          brightness: Brightness.dark,
+        scaffoldBackgroundColor: sidebarBg,
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF10A37F),
+          onPrimary: Colors.white,
+          surface: Color(0xFF202123),
+          onSurface: Color(0xFFEDEDED),
+          surfaceContainerHighest: Color(0xFF2A2B32),
+          onSurfaceVariant: Color(0xFFB4B7C1),
+          outlineVariant: Color(0xFF343541),
         ),
         useMaterial3: true,
       ),
