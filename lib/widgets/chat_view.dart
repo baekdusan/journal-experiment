@@ -52,13 +52,24 @@ class _ChatViewState extends ConsumerState<ChatView> {
     final learningState = ref.watch(learningStateProvider);
 
     // activeSessionProvider 변경을 감지하여 자동 스크롤을 트리거한다.
-    // 새 메시지가 추가되거나 마지막 메시지가 스트리밍 중이면 하단으로 스크롤한다.
+    // 스크롤 트리거 조건:
+    // 1. 세션이 처음 로드됨 (previous == null)
+    // 2. 새 메시지가 추가됨 (메시지 개수 증가)
+    // 3. 스트리밍이 완료됨 (isStreaming: true → false 전환)
     // addPostFrameCallback을 사용하여 프레임 렌더링 완료 후 스크롤을 실행한다.
     ref.listen(activeSessionProvider, (previous, next) {
-      if (next != null &&
-          (previous == null ||
-              next.messages.length > previous.messages.length ||
-              (next.messages.isNotEmpty && next.messages.last.isStreaming))) {
+      if (next == null) return;
+
+      final shouldScroll = previous == null ||
+          // 새 메시지 추가
+          next.messages.length > previous.messages.length ||
+          // 스트리밍 완료 (청크 수신 중에는 스크롤 안 함)
+          (previous.messages.isNotEmpty &&
+              next.messages.isNotEmpty &&
+              previous.messages.last.isStreaming &&
+              !next.messages.last.isStreaming);
+
+      if (shouldScroll) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     });
@@ -261,13 +272,10 @@ class _ChatViewState extends ConsumerState<ChatView> {
                       // 적용된 교수설계론 섹션
                       if (resourceCache.instructionalTheories.isNotEmpty) ...[
                         const SizedBox(height: 24),
-                        _buildSectionHeader(theme, Icons.psychology, '적용된 교수설계론'),
-                        const SizedBox(height: 12),
-                        ...resourceCache.instructionalTheories.map((theory) =>
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _buildTheoryCard(theme, theory),
-                            )),
+                        _buildTheorySectionWithSources(
+                          theme,
+                          resourceCache.instructionalTheories,
+                        ),
                       ],
                       // 참고 자료 섹션
                       if (resourceCache.learningResources.isNotEmpty) ...[
@@ -375,11 +383,6 @@ class _ChatViewState extends ConsumerState<ChatView> {
                     ),
                   ),
                 ],
-                // Raw sources 섹션
-                if (theory.rawChunks != null && theory.rawChunks!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildRawSourcesSection(theme, theory.rawChunks!),
-                ],
               ],
             ),
           ),
@@ -388,23 +391,92 @@ class _ChatViewState extends ConsumerState<ChatView> {
     );
   }
 
-  Widget _buildRawSourcesSection(ThemeData theme, List<SourceChunk> chunks) {
-    return ExpansionTile(
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: const EdgeInsets.only(top: 8),
-      leading: Icon(
-        Icons.source,
-        size: 16,
-        color: theme.colorScheme.secondary,
-      ),
-      title: Text(
-        '원문 보기 (${chunks.length}개)',
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.secondary,
-          fontWeight: FontWeight.w500,
+  Widget _buildTheorySectionWithSources(
+    ThemeData theme,
+    List<InstructionalTheory> theories,
+  ) {
+    // 모든 rawChunks 수집 (중복 제거)
+    final allChunks = <SourceChunk>[];
+    for (final theory in theories) {
+      if (theory.rawChunks != null) {
+        allChunks.addAll(theory.rawChunks!);
+      }
+    }
+
+    // 중복 제거 (같은 페이지, 같은 내용)
+    final uniqueChunks = <SourceChunk>[];
+    for (final chunk in allChunks) {
+      if (!uniqueChunks.any((c) =>
+          c.pageNumber == chunk.pageNumber && c.content == chunk.content)) {
+        uniqueChunks.add(chunk);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 헤더
+        Row(
+          children: [
+            Icon(Icons.psychology, size: 18, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '적용된 교수설계론',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
-      children: chunks.map((chunk) => _buildSourceChunkCard(theme, chunk)).toList(),
+        const SizedBox(height: 12),
+        // theory 카드들 (원문 보기 제외)
+        ...theories.map((theory) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildTheoryCard(theme, theory),
+            )),
+        // 통합 원문 보기 ExpansionTile
+        if (uniqueChunks.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              leading: Icon(
+                Icons.source,
+                size: 18,
+                color: theme.colorScheme.secondary,
+              ),
+              title: Text(
+                '원문 보기',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.secondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: Text(
+                'RAG 검색 결과 ${uniqueChunks.length}개',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              children: uniqueChunks
+                  .map((chunk) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _buildSourceChunkCard(theme, chunk),
+                      ))
+                  .toList(),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -820,10 +892,12 @@ class _ChatViewState extends ConsumerState<ChatView> {
       padding: const EdgeInsets.symmetric(vertical: 20),
       itemCount: session.messages.length,
       itemBuilder: (context, index) {
+        final message = session.messages[index];
         return Center(
+          key: ValueKey(message.id),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 800),
-            child: MessageBubble(message: session.messages[index]),
+            child: MessageBubble(message: message),
           ),
         );
       },

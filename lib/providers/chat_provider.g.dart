@@ -714,7 +714,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'3c00ecc8bfa5c041cb5cf3adeb5176cd2a6acfc1';
+String _$chatControllerHash() => r'd2c74f47dcd1b4084ecdb33251683670ecdc1c29';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

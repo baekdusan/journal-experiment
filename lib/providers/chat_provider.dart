@@ -8,6 +8,7 @@ import '../models/message.dart';
 import '../models/learning_state.dart';
 import '../models/state_change_event.dart';
 import '../providers/learning_state_provider.dart';
+import '../providers/streaming_message_provider.dart';
 import '../services/gemini_service.dart';
 import '../services/intent_classifier_service.dart';
 import '../services/conversational_agent_service.dart';
@@ -484,32 +485,32 @@ class ChatController extends _$ChatController {
       );
 
       // ============================================================
-      // 4. 스트리밍 수신: 청크 단위로 UI 업데이트
+      // 4. 스트리밍 수신: StreamingMessage Provider 업데이트
       // ============================================================
+      // 스트리밍 상태 초기화
+      ref.read(streamingMessageProvider.notifier).start(assistantId);
+
       String fullResponse = '';
       await for (final chunk in stream) {
         fullResponse += chunk;
-        final currentSessions = ref.read(chatSessionsProvider);
-        final currentSession = currentSessions.firstWhere(
-          (s) => s.id == sessionId,
-        );
-        final newMessages = [
-          for (final m in currentSession.messages)
-            if (m.id == assistantId) m.copyWith(content: fullResponse) else m,
-        ];
-        ref
-            .read(chatSessionsProvider.notifier)
-            .updateSession(currentSession.copyWith(messages: newMessages));
+        // 경량 StreamingMessage Provider만 업데이트 (ChatSession은 완료 시 1회만)
+        ref.read(streamingMessageProvider.notifier).appendChunk(chunk);
       }
 
+      // 스트리밍 상태 정리
+      ref.read(streamingMessageProvider.notifier).clear();
+
       // ============================================================
-      // 5. 스트리밍 완료: isStreaming=false 처리
+      // 5. 스트리밍 완료: ChatSession에 최종 메시지 저장 (1회만)
       // ============================================================
       final finalSessions = ref.read(chatSessionsProvider);
       final finalSession = finalSessions.firstWhere((s) => s.id == sessionId);
       final finalMessages = [
         for (final m in finalSession.messages)
-          if (m.id == assistantId) m.copyWith(isStreaming: false) else m,
+          if (m.id == assistantId)
+            m.copyWith(content: fullResponse, isStreaming: false)
+          else
+            m,
       ];
       ref
           .read(chatSessionsProvider.notifier)
@@ -526,6 +527,9 @@ class ChatController extends _$ChatController {
       // ============================================================
       // 에러 처리: 스트리밍 중단 시 에러 메시지 표시
       // ============================================================
+      // 스트리밍 상태 정리
+      ref.read(streamingMessageProvider.notifier).clear();
+
       if (assistantId != null) {
         final sessions = ref.read(chatSessionsProvider);
         final session = sessions.firstWhere((s) => s.id == sessionId);
