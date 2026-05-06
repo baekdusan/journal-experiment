@@ -77,10 +77,28 @@ RagService ragService(Ref ref) {
   return RagService();
 }
 
+/// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
+///
+/// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
+/// 이 플래그는 **모든 LLM 호출 구간**(Analyst/Tutor 스트리밍/Feedback/Design + 자동 Tutor)을 덮어
+/// 사용자가 처리 중에 추가 입력을 보내 흐름이 이중 실행되는 것을 막는다.
+///
+/// SharedPreferences에 영속화하지 않는다 — 앱 종료 시 진행 중이던 호출은 같이 사라지므로
+/// 다음 실행에 가져갈 의미가 없는 일시 상태이기 때문이다.
+@Riverpod(keepAlive: true)
+class IsProcessing extends _$IsProcessing {
+  @override
+  bool build() => false;
+
+  void set(bool value) {
+    state = value;
+  }
+}
+
 /// 앱의 모든 채팅 세션을 관리하는 상태 노티파이어.
 ///
-/// 세션 목록을 [List<ChatSession>]으로 보관하며 추가, 수정, 삭제 기능을 제공한다.
-/// [Sidebar]의 세션 히스토리 표시와 세션 전환에 사용된다.
+/// 내부적으로는 [List<ChatSession>] 형태를 유지하지만, 단일 세션 모드로 동작한다.
+/// 따라서 상태에는 최대 하나의 세션만 유지된다.
 @riverpod
 class ChatSessions extends _$ChatSessions {
   @override
@@ -90,9 +108,9 @@ class ChatSessions extends _$ChatSessions {
 
   /// 새 [ChatSession]을 세션 목록에 추가한다.
   ///
-  /// 첫 메시지 전송 시 [ChatController.sendMessage]에서 자동 호출되어 새 대화를 시작한다.
+  /// 단일 세션 모드이므로 기존 세션이 있더라도 새 세션 하나로 교체한다.
   void addSession(ChatSession session) {
-    state = [...state, session];
+    state = [session];
   }
 
   /// 동일한 ID를 가진 세션을 찾아 새 세션으로 교체한다.
@@ -100,17 +118,19 @@ class ChatSessions extends _$ChatSessions {
   /// 메시지 추가, 제목 변경 등 세션 내용이 업데이트될 때마다 호출된다.
   /// 불변성을 유지하기 위해 기존 세션을 수정하지 않고 새 객체로 대체한다.
   void updateSession(ChatSession session) {
-    state = [
-      for (final s in state)
-        if (s.id == session.id) session else s,
-    ];
+    state = [session];
   }
 
   /// 지정된 ID의 세션을 목록에서 제거한다.
   ///
-  /// 사용자가 사이드바에서 대화 기록을 삭제할 때 호출된다.
+  /// 현재 단일 세션을 비우는 내부 정리용 메서드다.
   void deleteSession(String id) {
     state = state.where((s) => s.id != id).toList();
+  }
+
+  /// 현재 단일 세션을 비운다.
+  void clear() {
+    state = [];
   }
 }
 
@@ -127,8 +147,8 @@ class ActiveSessionId extends _$ActiveSessionId {
 
   /// 활성 세션 ID를 변경한다.
   ///
-  /// [Sidebar]에서 세션 클릭 시 해당 ID로 설정되고,
-  /// "New Chat" 버튼 클릭 시 null로 초기화되어 새 대화 준비 상태가 된다.
+  /// 단일 세션 모드에서는 현재 세션을 식별하는 용도로만 사용된다.
+  /// 세션이 초기화되면 null로 돌아간다.
   void set(String? id) {
     state = id;
   }
@@ -142,8 +162,16 @@ class ActiveSessionId extends _$ActiveSessionId {
 ChatSession? activeSession(Ref ref) {
   final sessions = ref.watch(chatSessionsProvider);
   final activeId = ref.watch(activeSessionIdProvider);
-  if (activeId == null) return null;
-  return sessions.firstWhere((s) => s.id == activeId);
+  if (sessions.isEmpty) return null;
+  if (activeId == null) return sessions.first;
+
+  for (final session in sessions) {
+    if (session.id == activeId) {
+      return session;
+    }
+  }
+
+  return sessions.first;
 }
 
 /// ============================================================
@@ -175,13 +203,37 @@ ChatSession? activeSession(Ref ref) {
 ///       └─ outOfClass → Feedback (피드백)
 /// ```
 ///
-/// 사용처: [ChatInput], [Sidebar]
+/// 사용처: [ChatInput]
 @Riverpod(keepAlive: true)
 class ChatController extends _$ChatController {
   int _turnCounter = 0;
+
+  /// 동시에 진행 중인 처리 작업 수. 0이 될 때만 [isProcessingProvider]를 false로 내린다.
+  ///
+  /// 사용 이유: `sendMessage`가 백그라운드 Future(`_startSyllabusDesign` 내부)를 띄우고
+  /// 곧장 return하는 경로 때문에, 단순 bool 플래그로는 백그라운드 진행 중에 플래그가 풀려버린다.
+  /// 카운터로 `_enter`/`_exit`을 짝지어 호출하면 sendMessage가 finally에서 빠져나가도
+  /// 백그라운드가 살아있는 동안 isProcessing이 true로 유지된다.
+  int _activeCount = 0;
+
   @override
   FutureOr<void> build() {
     // Nothing to initialize
+  }
+
+  /// 처리 작업 진입: 카운터 증가 및 [isProcessingProvider] true로 설정.
+  void _enter() {
+    _activeCount += 1;
+    ref.read(isProcessingProvider.notifier).set(true);
+  }
+
+  /// 처리 작업 종료: 카운터 감소, 0이면 [isProcessingProvider] false로 해제.
+  void _exit() {
+    _activeCount -= 1;
+    if (_activeCount <= 0) {
+      _activeCount = 0;
+      ref.read(isProcessingProvider.notifier).set(false);
+    }
   }
 
   /// ============================================================
@@ -199,6 +251,25 @@ class ChatController extends _$ChatController {
   ///    - 준비 안됨? → Analyst Flow (정보 수집)
   ///    - 준비 완료? → Intent 분류 → Tutor/Feedback Flow
   Future<void> sendMessage(String text) async {
+    // ============================================================
+    // 0. 진입 가드: 이미 LLM 호출이 진행 중이면 무시
+    // ============================================================
+    // Analyst/Tutor/Feedback/Designer 어느 것이든 진행 중이면 false 리턴 대신 그냥 무시한다.
+    // UI(chat_input)도 isProcessing을 watch하여 입력을 막지만,
+    // 그 가드와 실제 호출 시작 사이의 미세한 윈도우를 컨트롤러에서도 한 번 더 닫는다.
+    if (ref.read(isProcessingProvider)) {
+      return;
+    }
+
+    _enter();
+    try {
+      await _sendMessageImpl(text);
+    } finally {
+      _exit();
+    }
+  }
+
+  Future<void> _sendMessageImpl(String text) async {
     _turnCounter += 1;
     final activeId = ref.read(activeSessionIdProvider);
     final sessions = ref.read(chatSessionsProvider);
@@ -215,7 +286,21 @@ class ChatController extends _$ChatController {
       ref.read(chatSessionsProvider.notifier).addSession(session);
       ref.read(activeSessionIdProvider.notifier).set(session.id);
     } else {
-      session = sessions.firstWhere((s) => s.id == activeId);
+      for (final existing in sessions) {
+        if (existing.id == activeId) {
+          session = existing;
+          break;
+        }
+      }
+
+      session ??= sessions.isNotEmpty ? sessions.first : null;
+      if (session == null) {
+        session = ChatSession(
+          title: text.length > 20 ? '${text.substring(0, 20)}...' : text,
+        );
+        ref.read(chatSessionsProvider.notifier).addSession(session);
+      }
+      ref.read(activeSessionIdProvider.notifier).set(session.id);
     }
 
     // 사용자 메시지를 세션에 추가
@@ -283,10 +368,14 @@ class ChatController extends _$ChatController {
 
   /// 활성 세션 ID를 null로 초기화하여 새 대화를 시작할 준비를 한다.
   ///
-  /// [Sidebar]의 "New Chat" 버튼 클릭 시 호출되며,
+  /// 단일 세션 모드에서 현재 대화와 학습 상태를 모두 초기화한다.
   /// 다음 메시지 전송 시 새 세션이 자동 생성된다.
   void createNewSession() {
+    ref.read(chatSessionsProvider.notifier).clear();
     ref.read(activeSessionIdProvider.notifier).set(null);
+    ref.read(streamingMessageProvider.notifier).clear();
+    _turnCounter = 0;
+    unawaited(ref.read(learningStateProvider.notifier).reset());
   }
 
   /// 지정된 세션을 JSON 파일로 내보낸다.
@@ -714,6 +803,10 @@ class ChatController extends _$ChatController {
     // ============================================================
     // 3. 백그라운드 실행: UI 블로킹 방지
     // ============================================================
+    // sendMessage의 try/finally는 이 Future를 await하지 않고 곧장 종료된다.
+    // 따라서 Future 자체를 `_enter`/`_exit` 쌍으로 감싸 isProcessing이
+    // design + 자동 Tutor 스트리밍이 끝날 때까지 true로 유지되도록 한다.
+    _enter();
     Future(() async {
       try {
         final designer = ref.read(syllabusDesignerServiceProvider);
@@ -777,6 +870,8 @@ class ChatController extends _$ChatController {
             .read(learningStateProvider.notifier)
             .setDesigning(false);
         _appendSystemMessage(sessionId, '로드맵 생성에 실패했어요. 잠시 후 다시 시도해 주세요.');
+      } finally {
+        _exit();
       }
     });
   }

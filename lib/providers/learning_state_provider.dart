@@ -119,6 +119,11 @@ class LearningStateNotifier extends _$LearningStateNotifier {
     await _saveToPrefs();
   }
 
+  Future<void> reset() async {
+    state = LearningState.initial();
+    await _saveToPrefs();
+  }
+
   Future<void> _loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_learningStateStorageKey);

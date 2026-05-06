@@ -2,6 +2,12 @@
 
 ADDIE 모델 기반 적응형 학습 튜터 시스템
 
+## 실험 운영 모드
+
+- 현재 앱은 **단일 세션 모드**로 동작합니다.
+- 사이드바와 세션 전환 UI는 제거했고, 한 번에 하나의 학습 흐름만 진행하는 것을 전제로 합니다.
+- 새로 시작하려면 앱을 새로고침하거나 상태를 초기화한 뒤 다시 실행하는 방식으로 운영하면 됩니다.
+
 ## 프로젝트 개요
 
 학습자의 니즈를 분석하고, 교수설계안(Syllabus)을 생성하며, 대화형으로 수업을 진행하는 AI 튜터 챗봇입니다.
@@ -92,7 +98,7 @@ lib/
 │   └── learning_state.dart        # 통합 학습 상태
 │
 ├── providers/
-│   ├── chat_provider.dart         # 채팅 + 오케스트레이션 로직
+│   ├── chat_provider.dart         # 단일 세션 채팅 + 오케스트레이션 로직
 │   └── learning_state_provider.dart # 학습 상태 관리 + 영속화
 │
 ├── services/
@@ -100,34 +106,87 @@ lib/
 │   ├── intent_classifier_service.dart  # 의도 분류
 │   ├── conversational_agent_service.dart # Analyst/Tutor/Feedback
 │   ├── syllabus_designer_service.dart   # 커리큘럼 생성
-│   └── step_mapper_service.dart   # 재설계 시 단계 매핑
+│   ├── wikidata_client.dart       # 주제 개념 검색
+│   ├── rag_service.dart           # 교수설계 RAG 검색
+│   └── session_export_service.dart # 세션 JSON 내보내기
 │
 ├── screens/
-│   └── chat_screen.dart           # 메인 채팅 화면 (반응형)
+│   └── chat_screen.dart           # 단일 세션 메인 화면
 │
 └── widgets/
     ├── chat_view.dart             # 채팅 뷰
     ├── chat_input.dart            # 입력 위젯
-    ├── message_bubble.dart        # 메시지 버블
-    └── sidebar.dart               # 사이드바
+    └── message_bubble.dart        # 메시지 버블
 ```
 
 ---
 
-## 실행 방법
+## 빠른 재실행
+
+아래 순서대로 실행하면 됩니다.
+
+### 1. Flutter 웹 앱 실행
 
 ```bash
-# 의존성 설치
+cd /Users/dusanbaek/research-addie-chatbot
 flutter pub get
-
-# 코드 생성 (Riverpod)
 flutter pub run build_runner build --delete-conflicting-outputs
-
-# 웹으로 실행
 flutter run -d chrome
 ```
 
----
+### 2. Firebase 설정 파일이 없을 때
+
+현재 앱은 `lib/firebase_options.dart`가 있어야 실행됩니다.
+이 파일이 없다면 아래를 먼저 1회 실행해야 합니다.
+
+```bash
+cd /Users/dusanbaek/research-addie-chatbot
+flutterfire configure --project=your-project-id
+```
+
+### 3. RAG 백엔드 실행
+
+```bash
+cd /Users/dusanbaek/research-addie-chatbot
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r scripts/rag/server_requirements.txt
+python3 scripts/rag/rag_server.py
+```
+
+백엔드는 `http://0.0.0.0:5001`에서 뜹니다.
+
+### 4. Vertex AI 인증이 안 되어 있을 때
+
+RAG 서버나 PDF 인제스트가 Vertex AI 임베딩을 호출하므로,
+로컬 머신에서 아직 인증하지 않았다면 1회 실행합니다.
+
+```bash
+gcloud auth application-default login
+```
+
+### 5. PDF RAG 인덱스를 다시 만들 때만
+
+```bash
+cd /Users/dusanbaek/research-addie-chatbot
+source .venv/bin/activate
+pip install -r scripts/rag/requirements.txt
+python3 scripts/rag/ingest_pdf.py \
+  --input "instructionalDesignSource.pdf" \
+  --sqlite "data/rag/resource_cache.sqlite" \
+  --faiss "data/rag/resource_index.faiss"
+```
+
+### 6. 백엔드 주소 확인
+
+앱은 현재 아래 파일에서 RAG/Wikidata 프록시 주소를 직접 사용합니다.
+
+- `lib/services/rag_service.dart`
+- `lib/services/wikidata_client.dart`
+
+기본값은 `http://localhost:5001`입니다.
+웹 앱과 백엔드를 같은 PC에서 실행하면 그대로 쓰면 되고,
+다른 장비에서 웹 앱을 열어야 하면 현재 PC의 IP로 바꿔야 합니다.
 
 ## Firebase 설정
 
@@ -152,7 +211,7 @@ flutterfire configure --project=your-project-id
 
 - `lib/firebase_options.dart`에는 API 키가 포함됩니다
 - 이 파일은 `.gitignore`에 포함되어야 합니다
-- 로컬 설정: `lib/firebase_options_example.dart`를 복사하여 사용
+- 이 저장소에는 `lib/firebase_options.dart`가 기본 포함되어 있지 않을 수 있으므로 `flutterfire configure`로 다시 생성해야 합니다
 
 ---
 

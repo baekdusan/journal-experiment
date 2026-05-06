@@ -404,24 +404,109 @@ final class RagServiceProvider
 
 String _$ragServiceHash() => r'97ab3e69d4c719fd40b99d0dc9eee0d6883e015e';
 
+/// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
+///
+/// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
+/// 이 플래그는 **모든 LLM 호출 구간**(Analyst/Tutor 스트리밍/Feedback/Design + 자동 Tutor)을 덮어
+/// 사용자가 처리 중에 추가 입력을 보내 흐름이 이중 실행되는 것을 막는다.
+///
+/// SharedPreferences에 영속화하지 않는다 — 앱 종료 시 진행 중이던 호출은 같이 사라지므로
+/// 다음 실행에 가져갈 의미가 없는 일시 상태이기 때문이다.
+
+@ProviderFor(IsProcessing)
+final isProcessingProvider = IsProcessingProvider._();
+
+/// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
+///
+/// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
+/// 이 플래그는 **모든 LLM 호출 구간**(Analyst/Tutor 스트리밍/Feedback/Design + 자동 Tutor)을 덮어
+/// 사용자가 처리 중에 추가 입력을 보내 흐름이 이중 실행되는 것을 막는다.
+///
+/// SharedPreferences에 영속화하지 않는다 — 앱 종료 시 진행 중이던 호출은 같이 사라지므로
+/// 다음 실행에 가져갈 의미가 없는 일시 상태이기 때문이다.
+final class IsProcessingProvider extends $NotifierProvider<IsProcessing, bool> {
+  /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
+  ///
+  /// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
+  /// 이 플래그는 **모든 LLM 호출 구간**(Analyst/Tutor 스트리밍/Feedback/Design + 자동 Tutor)을 덮어
+  /// 사용자가 처리 중에 추가 입력을 보내 흐름이 이중 실행되는 것을 막는다.
+  ///
+  /// SharedPreferences에 영속화하지 않는다 — 앱 종료 시 진행 중이던 호출은 같이 사라지므로
+  /// 다음 실행에 가져갈 의미가 없는 일시 상태이기 때문이다.
+  IsProcessingProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'isProcessingProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$isProcessingHash();
+
+  @$internal
+  @override
+  IsProcessing create() => IsProcessing();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$isProcessingHash() => r'6b32c4f4c6b962fd3f0193af633c11ba56138891';
+
+/// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
+///
+/// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
+/// 이 플래그는 **모든 LLM 호출 구간**(Analyst/Tutor 스트리밍/Feedback/Design + 자동 Tutor)을 덮어
+/// 사용자가 처리 중에 추가 입력을 보내 흐름이 이중 실행되는 것을 막는다.
+///
+/// SharedPreferences에 영속화하지 않는다 — 앱 종료 시 진행 중이던 호출은 같이 사라지므로
+/// 다음 실행에 가져갈 의미가 없는 일시 상태이기 때문이다.
+
+abstract class _$IsProcessing extends $Notifier<bool> {
+  bool build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<bool, bool>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<bool, bool>,
+              bool,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 /// 앱의 모든 채팅 세션을 관리하는 상태 노티파이어.
 ///
-/// 세션 목록을 [List<ChatSession>]으로 보관하며 추가, 수정, 삭제 기능을 제공한다.
-/// [Sidebar]의 세션 히스토리 표시와 세션 전환에 사용된다.
+/// 내부적으로는 [List<ChatSession>] 형태를 유지하지만, 단일 세션 모드로 동작한다.
+/// 따라서 상태에는 최대 하나의 세션만 유지된다.
 
 @ProviderFor(ChatSessions)
 final chatSessionsProvider = ChatSessionsProvider._();
 
 /// 앱의 모든 채팅 세션을 관리하는 상태 노티파이어.
 ///
-/// 세션 목록을 [List<ChatSession>]으로 보관하며 추가, 수정, 삭제 기능을 제공한다.
-/// [Sidebar]의 세션 히스토리 표시와 세션 전환에 사용된다.
+/// 내부적으로는 [List<ChatSession>] 형태를 유지하지만, 단일 세션 모드로 동작한다.
+/// 따라서 상태에는 최대 하나의 세션만 유지된다.
 final class ChatSessionsProvider
     extends $NotifierProvider<ChatSessions, List<ChatSession>> {
   /// 앱의 모든 채팅 세션을 관리하는 상태 노티파이어.
   ///
-  /// 세션 목록을 [List<ChatSession>]으로 보관하며 추가, 수정, 삭제 기능을 제공한다.
-  /// [Sidebar]의 세션 히스토리 표시와 세션 전환에 사용된다.
+  /// 내부적으로는 [List<ChatSession>] 형태를 유지하지만, 단일 세션 모드로 동작한다.
+  /// 따라서 상태에는 최대 하나의 세션만 유지된다.
   ChatSessionsProvider._()
     : super(
         from: null,
@@ -449,12 +534,12 @@ final class ChatSessionsProvider
   }
 }
 
-String _$chatSessionsHash() => r'34336da7cbc636e90ad5d058d40214bef848cd2f';
+String _$chatSessionsHash() => r'030f67eff369600d790370b3b7f9fb882c198f14';
 
 /// 앱의 모든 채팅 세션을 관리하는 상태 노티파이어.
 ///
-/// 세션 목록을 [List<ChatSession>]으로 보관하며 추가, 수정, 삭제 기능을 제공한다.
-/// [Sidebar]의 세션 히스토리 표시와 세션 전환에 사용된다.
+/// 내부적으로는 [List<ChatSession>] 형태를 유지하지만, 단일 세션 모드로 동작한다.
+/// 따라서 상태에는 최대 하나의 세션만 유지된다.
 
 abstract class _$ChatSessions extends $Notifier<List<ChatSession>> {
   List<ChatSession> build();
@@ -597,7 +682,7 @@ final class ActiveSessionProvider
   }
 }
 
-String _$activeSessionHash() => r'0e7209339a82b7e8ceab3d51a29da4b9ac6c1d42';
+String _$activeSessionHash() => r'6e11044f53beef2dd335bb7031ff3c4d66174e50';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터
@@ -628,7 +713,7 @@ String _$activeSessionHash() => r'0e7209339a82b7e8ceab3d51a29da4b9ac6c1d42';
 ///       └─ outOfClass → Feedback (피드백)
 /// ```
 ///
-/// 사용처: [ChatInput], [Sidebar]
+/// 사용처: [ChatInput]
 
 @ProviderFor(ChatController)
 final chatControllerProvider = ChatControllerProvider._();
@@ -662,7 +747,7 @@ final chatControllerProvider = ChatControllerProvider._();
 ///       └─ outOfClass → Feedback (피드백)
 /// ```
 ///
-/// 사용처: [ChatInput], [Sidebar]
+/// 사용처: [ChatInput]
 final class ChatControllerProvider
     extends $AsyncNotifierProvider<ChatController, void> {
   /// ============================================================
@@ -694,7 +779,7 @@ final class ChatControllerProvider
   ///       └─ outOfClass → Feedback (피드백)
   /// ```
   ///
-  /// 사용처: [ChatInput], [Sidebar]
+  /// 사용처: [ChatInput]
   ChatControllerProvider._()
     : super(
         from: null,
@@ -714,7 +799,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'd2c74f47dcd1b4084ecdb33251683670ecdc1c29';
+String _$chatControllerHash() => r'd959409b39656d733917ebc9caea747729b703ff';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터
@@ -745,7 +830,7 @@ String _$chatControllerHash() => r'd2c74f47dcd1b4084ecdb33251683670ecdc1c29';
 ///       └─ outOfClass → Feedback (피드백)
 /// ```
 ///
-/// 사용처: [ChatInput], [Sidebar]
+/// 사용처: [ChatInput]
 
 abstract class _$ChatController extends $AsyncNotifier<void> {
   FutureOr<void> build();
