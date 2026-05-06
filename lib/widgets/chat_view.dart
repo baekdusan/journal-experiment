@@ -81,7 +81,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
         _buildStatusBanner(context, learningState),
         Expanded(
           child: Container(
-            color: const Color(0xFFF7F7F8),
+            color: Theme.of(context).colorScheme.surface,
             child: session == null || session.messages.isEmpty
                 ? _buildWelcome(context)
                 : _buildMessageList(session),
@@ -98,60 +98,50 @@ class _ChatViewState extends ConsumerState<ChatView> {
     }
 
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final isDesigning = state.isDesigning;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
-        color: isDesigning
-            ? theme.colorScheme.surfaceContainer
-            : theme.colorScheme.tertiaryContainer.withOpacity(0.3),
+        color: cs.surfaceContainerLow,
         border: Border(
-          bottom: BorderSide(
-            color: isDesigning
-                ? theme.colorScheme.outlineVariant
-                : theme.colorScheme.tertiary.withOpacity(0.2),
-          ),
+          bottom: BorderSide(color: cs.outlineVariant),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            constraints: const BoxConstraints(maxWidth: 800),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (isDesigning)
-                  SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: theme.colorScheme.primary,
-                    ),
-                  )
-                else
-                  Icon(
-                    Icons.check_circle_outline,
-                    size: 14,
-                    color: theme.colorScheme.tertiary,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (isDesigning)
+                SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: cs.onSurface,
                   ),
-                const SizedBox(width: 8),
-                Text(
-                  isDesigning ? '로드맵 생성 중...' : '로드맵 준비 완료',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: isDesigning
-                        ? theme.colorScheme.onSurfaceVariant
-                        : theme.colorScheme.tertiary,
-                    fontWeight: FontWeight.w500,
-                  ),
+                )
+              else
+                Icon(
+                  Icons.check_circle_outline,
+                  size: 14,
+                  color: cs.onSurface,
                 ),
-              ],
-            ),
+              const SizedBox(width: 8),
+              Text(
+                isDesigning ? '로드맵 생성 중...' : '로드맵 준비 완료',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -161,14 +151,15 @@ class _ChatViewState extends ConsumerState<ChatView> {
     LearningState learningState,
   ) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final totalSteps = learningState.instructionalDesign.syllabus.length;
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
+        color: cs.surfaceContainerLow,
         border: Border(
-          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+          bottom: BorderSide(color: cs.outlineVariant),
         ),
       ),
       child: Center(
@@ -180,16 +171,17 @@ class _ChatViewState extends ConsumerState<ChatView> {
               children: [
                 Icon(
                   Icons.school_outlined,
-                  size: 20,
-                  color: theme.colorScheme.primary,
+                  size: 18,
+                  color: cs.onSurface,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '학습 로드맵 ($totalSteps단계)',
+                    '학습 로드맵 · $totalSteps단계',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                      letterSpacing: -0.1,
                     ),
                   ),
                 ),
@@ -197,6 +189,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                 TextButton.icon(
                   onPressed: () => _showSyllabusModal(context, learningState),
                   style: TextButton.styleFrom(
+                    foregroundColor: cs.onSurface,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 8,
@@ -204,7 +197,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  icon: const Icon(Icons.list_alt, size: 16),
+                  icon: const Icon(Icons.list_alt_outlined, size: 16),
                   label: const Text('목차 보기'),
                 ),
               ],
@@ -239,13 +232,16 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   child: Row(
                     children: [
                       Icon(
-                        Icons.map,
-                        color: theme.colorScheme.primary,
+                        Icons.map_outlined,
+                        color: theme.colorScheme.onSurface,
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 10),
                       Text(
                         '학습 플랜',
-                        style: theme.textTheme.titleLarge,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.2,
+                        ),
                       ),
                       const Spacer(),
                       IconButton(
@@ -308,13 +304,14 @@ class _ChatViewState extends ConsumerState<ChatView> {
         Icon(
           icon,
           size: 18,
-          color: theme.colorScheme.primary,
+          color: theme.colorScheme.onSurface,
         ),
         const SizedBox(width: 8),
         Text(
           title,
           style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
           ),
         ),
       ],
@@ -322,27 +319,27 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 
   Widget _buildTheoryCard(ThemeData theme, InstructionalTheory theory) {
+    final cs = theme.colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.3),
-        border: Border.all(
-          color: theme.colorScheme.tertiary.withValues(alpha: 0.3),
-        ),
+        color: cs.surface,
+        border: Border.all(color: cs.outlineVariant),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ExpansionTile(
+        shape: const Border(),
         tilePadding: const EdgeInsets.symmetric(horizontal: 16),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         leading: Icon(
-          Icons.menu_book,
-          color: theme.colorScheme.tertiary,
+          Icons.menu_book_outlined,
+          color: cs.onSurface,
           size: 20,
         ),
         title: Text(
           theory.theoryName,
           style: theme.textTheme.bodyMedium?.copyWith(
             fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurface,
+            color: cs.onSurface,
           ),
         ),
         children: [
@@ -354,15 +351,16 @@ class _ChatViewState extends ConsumerState<ChatView> {
                 Text(
                   theory.description,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: cs.onSurfaceVariant,
+                    height: 1.5,
                   ),
                 ),
                 if (theory.applicability.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
+                      color: cs.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -371,14 +369,15 @@ class _ChatViewState extends ConsumerState<ChatView> {
                         Icon(
                           Icons.lightbulb_outline,
                           size: 14,
-                          color: theme.colorScheme.tertiary,
+                          color: cs.onSurfaceVariant,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             theory.applicability,
                             style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                              color: cs.onSurfaceVariant,
+                              height: 1.5,
                             ),
                           ),
                         ),
@@ -415,19 +414,21 @@ class _ChatViewState extends ConsumerState<ChatView> {
       }
     }
 
+    final cs = theme.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 헤더
         Row(
           children: [
-            Icon(Icons.psychology, size: 18, color: theme.colorScheme.primary),
+            Icon(Icons.psychology_outlined, size: 18, color: cs.onSurface),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 '적용된 교수설계론',
                 style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
@@ -444,30 +445,31 @@ class _ChatViewState extends ConsumerState<ChatView> {
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant,
-              ),
+              color: cs.surface,
+              border: Border.all(color: cs.outlineVariant),
               borderRadius: BorderRadius.circular(12),
             ),
             child: ExpansionTile(
-              tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: const Border(),
+              tilePadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               leading: Icon(
-                Icons.source,
+                Icons.description_outlined,
                 size: 18,
-                color: theme.colorScheme.secondary,
+                color: cs.onSurfaceVariant,
               ),
               title: Text(
                 '원문 보기',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.secondary,
+                  color: cs.onSurface,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               subtitle: Text(
                 'RAG 검색 결과 ${uniqueChunks.length}개',
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: cs.onSurfaceVariant,
                 ),
               ),
               children: uniqueChunks
@@ -484,15 +486,14 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 
   Widget _buildSourceChunkCard(ThemeData theme, SourceChunk chunk) {
+    final cs = theme.colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
+        color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.2),
-        ),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -500,15 +501,15 @@ class _ChatViewState extends ConsumerState<ChatView> {
           Row(
             children: [
               Icon(
-                Icons.description_outlined,
+                Icons.article_outlined,
                 size: 14,
-                color: theme.colorScheme.primary,
+                color: cs.onSurfaceVariant,
               ),
               const SizedBox(width: 6),
               Text(
                 'p.${chunk.pageNumber}',
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
+                  color: cs.onSurface,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -518,7 +519,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   child: Text(
                     chunk.sectionHeader!,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: cs.onSurfaceVariant,
                       fontStyle: FontStyle.italic,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -531,7 +532,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
           Text(
             chunk.content,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface,
+              color: cs.onSurface,
               height: 1.5,
             ),
           ),
@@ -541,16 +542,15 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 
   Widget _buildResourceCard(ThemeData theme, LearningResource resource) {
+    final cs = theme.colorScheme;
     final iconData = _getResourceIcon(resource.resourceType);
     final typeLabel = _getResourceTypeLabel(resource.resourceType);
     final hasUrl = resource.url.isNotEmpty;
 
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant,
-        ),
+        color: cs.surface,
+        border: Border.all(color: cs.outlineVariant),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -560,12 +560,12 @@ class _ChatViewState extends ConsumerState<ChatView> {
             leading: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: theme.colorScheme.secondaryContainer,
+                color: cs.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 iconData,
-                color: theme.colorScheme.secondary,
+                color: cs.onSurface,
                 size: 20,
               ),
             ),
@@ -573,7 +573,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
               resource.title,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w500,
-                color: theme.colorScheme.onSurface,
+                color: cs.onSurface,
               ),
             ),
             subtitle: Column(
@@ -581,15 +581,16 @@ class _ChatViewState extends ConsumerState<ChatView> {
               children: [
                 const SizedBox(height: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+                    color: cs.surfaceContainerHigh,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     typeLabel,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.secondary,
+                      color: cs.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -600,21 +601,20 @@ class _ChatViewState extends ConsumerState<ChatView> {
                     icon: Icon(
                       Icons.open_in_new,
                       size: 20,
-                      color: theme.colorScheme.primary,
+                      color: cs.onSurface,
                     ),
                     tooltip: '원문 보기',
                     onPressed: () => _launchUrl(resource.url),
                   )
                 : null,
           ),
-          // 요약 정보
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                color: cs.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -623,7 +623,8 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   Text(
                     resource.summary,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: cs.onSurfaceVariant,
+                      height: 1.5,
                     ),
                   ),
                   if (hasUrl) ...[
@@ -633,7 +634,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                       child: Text(
                         resource.url,
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
+                          color: cs.onSurface,
                           decoration: TextDecoration.underline,
                         ),
                         maxLines: 1,
@@ -688,14 +689,13 @@ class _ChatViewState extends ConsumerState<ChatView> {
     LearnerProfile profile,
     id.InstructionalDesign design,
   ) {
+    final cs = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
-        ),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -705,14 +705,15 @@ class _ChatViewState extends ConsumerState<ChatView> {
               Icon(
                 Icons.info_outline,
                 size: 18,
-                color: theme.colorScheme.primary,
+                color: cs.onSurface,
               ),
               const SizedBox(width: 8),
               Text(
                 '학습 정보',
                 style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                  letterSpacing: -0.2,
                 ),
               ),
             ],
@@ -780,15 +781,17 @@ class _ChatViewState extends ConsumerState<ChatView> {
     String label,
     String value,
   ) {
+    final cs = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: cs.surface,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          Icon(icon, size: 16, color: cs.onSurface),
           const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -796,14 +799,14 @@ class _ChatViewState extends ConsumerState<ChatView> {
               Text(
                 label,
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: cs.onSurfaceVariant,
                 ),
               ),
               Text(
                 value,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
                 ),
               ),
             ],
@@ -867,6 +870,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 
   Widget _buildWelcome(BuildContext context) {
+    final theme = Theme.of(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 820),
@@ -875,11 +879,12 @@ class _ChatViewState extends ConsumerState<ChatView> {
           children: [
             Text(
               '무엇을 도와드릴까요?',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF2D2D2F),
-                  ),
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+                letterSpacing: -0.4,
+              ),
             ),
           ],
         ),

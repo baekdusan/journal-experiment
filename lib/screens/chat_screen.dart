@@ -1,52 +1,91 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../widgets/sidebar.dart';
+import '../providers/chat_provider.dart';
 import '../widgets/chat_view.dart';
 
-/// 채팅 앱의 메인 화면으로, 반응형 레이아웃을 구현한다.
+/// 채팅 앱의 메인 화면.
 ///
-/// 화면 너비 900px을 기준으로 레이아웃이 변경된다:
-/// - **데스크탑 (900px 초과)**: [Sidebar]를 왼쪽에 고정 표시하고 AppBar를 숨김
-/// - **모바일 (900px 이하)**: [Sidebar]를 [Drawer]로 숨기고 AppBar를 표시
-///
-/// [ChatView]는 항상 메인 콘텐츠 영역에 표시된다.
+/// 실험 집중도를 높이기 위해 단일 세션 모드로 동작하며,
+/// 사이드바 없이 [ChatView]만 표시한다.
 class ChatScreen extends ConsumerWidget {
   const ChatScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isLargeScreen = constraints.maxWidth > 900;
+    final theme = Theme.of(context);
+    final activeSession = ref.watch(activeSessionProvider);
+    final canExport = activeSession != null && activeSession.messages.isNotEmpty;
 
-        return Scaffold(
-          appBar: isLargeScreen
-              ? null
-              : AppBar(
-                  title: const Text(
-                    'Instructional Tutoring System',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  ),
-                ),
-          drawer: isLargeScreen
-              ? null
-              : const Drawer(
-                  width: 280,
-                  child: Sidebar(),
-                ),
-          body: Row(
-            children: [
-              if (isLargeScreen) const Sidebar(),
-              Expanded(
-                child: Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  child: const ChatView(),
-                ),
-              ),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 56,
+        title: Text(
+          'ADDIE Tutor',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface,
+            letterSpacing: -0.2,
           ),
-        );
-      },
+        ),
+        actions: [
+          _ExportButton(enabled: canExport),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: const ChatView(),
     );
+  }
+}
+
+/// 현재 세션의 대화 기록을 JSON 파일로 다운로드하는 액션 버튼.
+///
+/// 실험 데이터 수집 용도. 메시지가 없으면 비활성화된다.
+class _ExportButton extends ConsumerWidget {
+  final bool enabled;
+
+  const _ExportButton({required this.enabled});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: enabled ? '대화 기록 저장' : '저장할 메시지가 없습니다',
+      onPressed: enabled ? () => _onPressed(context, ref) : null,
+      icon: Icon(
+        Icons.file_download_outlined,
+        size: 22,
+        color: enabled ? cs.onSurface : cs.onSurfaceVariant.withValues(alpha: 0.5),
+      ),
+    );
+  }
+
+  Future<void> _onPressed(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final session = ref.read(activeSessionProvider);
+    if (session == null) return;
+
+    try {
+      await ref
+          .read(chatControllerProvider.notifier)
+          .downloadSession(session.id);
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('대화 기록을 저장했습니다.'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('저장 실패: $e'),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 }

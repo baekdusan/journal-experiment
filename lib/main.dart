@@ -16,51 +16,104 @@ void main() async {
 
 /// 앱의 루트 위젯으로, Material 3 기반의 라이트/다크 테마를 정의한다.
 ///
-/// [ChatScreen]을 홈 화면으로 설정하고, [colorScheme]을 통해
-/// 앱 전체의 색상 테마를 일관되게 관리한다.
+/// 최신 ChatGPT(5.x) 톤을 따른다 — 흰 배경, monochrome 액센트, 옅은 회색 사용자 버블.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // ChatGPT 5.x 라이트 톤
+  static const _bgLight = Color(0xFFFFFFFF);
+  static const _surfaceLight = Color(0xFFFFFFFF);
+  static const _userBubbleLight = Color(0xFFF4F4F4);
+  static const _onSurfaceLight = Color(0xFF0D0D0D);
+  static const _onSurfaceVariantLight = Color(0xFF5D5D5D);
+  static const _outlineLight = Color(0xFFE5E5E5);
+  static const _accentLight = Color(0xFF0D0D0D);
+
+  // ChatGPT 5.x 다크 톤
+  static const _bgDark = Color(0xFF212121);
+  static const _surfaceDark = Color(0xFF212121);
+  static const _userBubbleDark = Color(0xFF2F2F2F);
+  static const _onSurfaceDark = Color(0xFFECECEC);
+  static const _onSurfaceVariantDark = Color(0xFFB4B4B4);
+  static const _outlineDark = Color(0xFF424242);
+  static const _accentDark = Color(0xFFFFFFFF);
+
   @override
   Widget build(BuildContext context) {
-    const chatBg = Color(0xFFF7F7F8);
-    const sidebarBg = Color(0xFF171717);
-
     return MaterialApp(
       title: 'Instructional Tutoring System',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'Apple SD Gothic Neo',
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
-        scaffoldBackgroundColor: chatBg,
+        scaffoldBackgroundColor: _bgLight,
         colorScheme: const ColorScheme.light(
-          primary: Color(0xFF10A37F),
+          primary: _accentLight,
           onPrimary: Colors.white,
-          surface: chatBg,
-          onSurface: Color(0xFF1F1F1F),
-          surfaceContainerHighest: Color(0xFFECECF1),
-          onSurfaceVariant: Color(0xFF666870),
-          outlineVariant: Color(0xFFD9D9E3),
+          primaryContainer: Color(0xFFEFEFEF),
+          onPrimaryContainer: _onSurfaceLight,
+          secondary: _onSurfaceVariantLight,
+          onSecondary: Colors.white,
+          secondaryContainer: Color(0xFFEFEFEF),
+          onSecondaryContainer: _onSurfaceLight,
+          tertiary: _onSurfaceLight,
+          onTertiary: Colors.white,
+          tertiaryContainer: Color(0xFFEFEFEF),
+          onTertiaryContainer: _onSurfaceLight,
+          surface: _surfaceLight,
+          onSurface: _onSurfaceLight,
+          surfaceContainerLow: Color(0xFFFAFAFA),
+          surfaceContainer: Color(0xFFF9F9F9),
+          surfaceContainerHigh: _userBubbleLight,
+          surfaceContainerHighest: Color(0xFFEDEDED),
+          onSurfaceVariant: _onSurfaceVariantLight,
+          outline: Color(0xFFC2C2C2),
+          outlineVariant: _outlineLight,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: chatBg,
-          foregroundColor: Color(0xFF1F1F1F),
+          backgroundColor: _bgLight,
+          foregroundColor: _onSurfaceLight,
           elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
         ),
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
         fontFamily: 'Apple SD Gothic Neo',
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
-        scaffoldBackgroundColor: sidebarBg,
+        scaffoldBackgroundColor: _bgDark,
         colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF10A37F),
-          onPrimary: Colors.white,
-          surface: Color(0xFF202123),
-          onSurface: Color(0xFFEDEDED),
-          surfaceContainerHighest: Color(0xFF2A2B32),
-          onSurfaceVariant: Color(0xFFB4B7C1),
-          outlineVariant: Color(0xFF343541),
+          primary: _accentDark,
+          onPrimary: _onSurfaceLight,
+          primaryContainer: Color(0xFF333333),
+          onPrimaryContainer: _onSurfaceDark,
+          secondary: _onSurfaceVariantDark,
+          onSecondary: _onSurfaceLight,
+          secondaryContainer: Color(0xFF333333),
+          onSecondaryContainer: _onSurfaceDark,
+          tertiary: _onSurfaceDark,
+          onTertiary: _onSurfaceLight,
+          tertiaryContainer: Color(0xFF333333),
+          onTertiaryContainer: _onSurfaceDark,
+          surface: _surfaceDark,
+          onSurface: _onSurfaceDark,
+          surfaceContainerLow: Color(0xFF262626),
+          surfaceContainer: Color(0xFF2A2A2A),
+          surfaceContainerHigh: _userBubbleDark,
+          surfaceContainerHighest: Color(0xFF383838),
+          onSurfaceVariant: _onSurfaceVariantDark,
+          outline: Color(0xFF6E6E6E),
+          outlineVariant: _outlineDark,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: _bgDark,
+          foregroundColor: _onSurfaceDark,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
         ),
         useMaterial3: true,
       ),
