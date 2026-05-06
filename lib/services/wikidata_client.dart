@@ -48,7 +48,7 @@ class WikidataClient {
 
   WikidataClient({
     http.Client? client,
-    this.proxyUrl = 'http://192.168.0.190:5001',
+    this.proxyUrl = 'http://localhost:5001',
   }) : _client = client ?? http.Client();
 
   /// Search for entity by topic name (via proxy)

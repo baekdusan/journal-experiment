@@ -41,7 +41,7 @@ class RetrievedChunk {
 class RagService {
   final String baseUrl;
 
-  RagService({this.baseUrl = 'http://192.168.0.190:5001'});
+  RagService({this.baseUrl = 'http://localhost:5001'});
 
   /// Retrieve top-K chunks for a given query.
   ///

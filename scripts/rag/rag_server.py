@@ -2,15 +2,16 @@
 # dependencies = [
 #     "flask==3.1.0",
 #     "flask-cors==5.0.0",
-#     "faiss-cpu==1.9.0",
+#     "faiss-cpu==1.13.2",
 #     "google-cloud-aiplatform==1.75.0",
 #     "numpy==2.2.3",
-#     "requests",
+#     "requests==2.33.1",
 # ]
 # ///
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import faiss
+import os
 import sqlite3
 import numpy as np
 import requests
@@ -33,11 +34,35 @@ print(f"Connecting to SQLite database at {SQLITE_PATH}...")
 conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
 print("SQLite connection established")
 
-# Initialize Vertex AI
-print("Initializing Vertex AI...")
-aiplatform.init(project="research-addie-chatbot", location="us-central1")
-embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
-print("Vertex AI initialized")
+VERTEX_PROJECT = "research-addie-chatbot"
+VERTEX_LOCATION = "us-central1"
+VERTEX_EMBEDDING_MODEL = "text-embedding-004"
+
+embedding_model = None
+embedding_model_last_error = None
+
+
+def get_embedding_model():
+    """Initialize Vertex AI on demand so the server can boot without ADC."""
+    global embedding_model, embedding_model_last_error
+
+    if embedding_model is not None:
+        return embedding_model
+
+    try:
+        print("Initializing Vertex AI...")
+        aiplatform.init(project=VERTEX_PROJECT, location=VERTEX_LOCATION)
+        embedding_model = TextEmbeddingModel.from_pretrained(VERTEX_EMBEDDING_MODEL)
+        embedding_model_last_error = None
+        print("Vertex AI initialized")
+        return embedding_model
+    except Exception as exc:
+        embedding_model_last_error = str(exc)
+        print(f"Vertex AI initialization failed: {exc}")
+        raise RuntimeError(
+            "Vertex AI initialization failed. Run `gcloud auth application-default login` "
+            "and verify access to the configured Google Cloud project."
+        ) from exc
 
 
 @app.route('/retrieve', methods=['POST'])
@@ -52,7 +77,8 @@ def retrieve():
             return jsonify({'error': 'query parameter is required'}), 400
 
         # 1. Embed query
-        query_embedding = embedding_model.get_embeddings([query_text])[0]
+        model = get_embedding_model()
+        query_embedding = model.get_embeddings([query_text])[0]
         query_vector = np.array(query_embedding.values, dtype='float32').reshape(1, -1)
         faiss.normalize_L2(query_vector)
 
@@ -79,6 +105,9 @@ def retrieve():
 
         return jsonify({'results': results})
 
+    except RuntimeError as e:
+        print(f"Error in /retrieve: {e}")
+        return jsonify({'error': str(e)}), 503
     except Exception as e:
         print(f"Error in /retrieve: {e}")
         return jsonify({'error': str(e)}), 500
@@ -91,7 +120,9 @@ def health():
         'status': 'ok',
         'index_size': index.ntotal,
         'faiss_path': FAISS_PATH,
-        'sqlite_path': SQLITE_PATH
+        'sqlite_path': SQLITE_PATH,
+        'vertex_ai_initialized': embedding_model is not None,
+        'vertex_ai_last_error': embedding_model_last_error,
     })
 
 
@@ -146,10 +177,11 @@ def cache_educational():
         # Generate embeddings for each chunk
         texts = [chunk['content'] for chunk in chunks]
         embeddings_list = []
+        model = get_embedding_model()
 
         for i in range(0, len(texts), 5):  # Batch size 5
             batch = texts[i:i+5]
-            batch_embeddings = embedding_model.get_embeddings(batch)
+            batch_embeddings = model.get_embeddings(batch)
             for emb in batch_embeddings:
                 embeddings_list.append(np.array(emb.values))
 
@@ -189,6 +221,9 @@ def cache_educational():
         faiss.write_index(index, FAISS_PATH)
 
         return jsonify({'status': 'ok', 'cached': len(chunks)})
+    except RuntimeError as e:
+        print(f"Error in /cache_educational: {e}")
+        return jsonify({'error': str(e)}), 503
     except Exception as e:
         print(f"Error in /cache_educational: {e}")
         return jsonify({'error': str(e)}), 500
@@ -347,10 +382,12 @@ def proxy_openstax_catalog():
 
 
 if __name__ == '__main__':
+    debug_mode = os.environ.get("RAG_SERVER_DEBUG", "").lower() in {"1", "true", "yes"}
+
     print("\n" + "="*50)
     print("RAG HTTP Bridge API Server")
     print("="*50)
     print(f"FAISS Index: {index.ntotal} vectors")
     print(f"Listening on http://0.0.0.0:5001")
     print("="*50 + "\n")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=debug_mode, use_reloader=False)
