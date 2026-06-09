@@ -3,7 +3,6 @@ import 'package:firebase_ai/firebase_ai.dart';
 import '../config/ai_models.dart';
 import '../models/learning_state.dart';
 import '../models/learner_profile.dart';
-import '../models/resource_cache.dart';
 
 class AnalystResult {
   final String response;
@@ -67,7 +66,8 @@ class ConversationalAgentService {
     final currentStepLine =
         '${state.progressLabel} — ${state.currentStep?.topic ?? '-'}';
 
-    final resourcesBlock = _buildTutorResourcesBlock(cache);
+    final resourcesBlock =
+        cache.isResourceReady ? '\n${cache.toPromptBlock()}' : '';
 
     return '''너는 학습자를 돕는 친절하고 전문적인 튜터다.
     학습 로드맵을 참고하여 학습자의 흐름에 맞게 자연스럽게 수업을 진행하라.
@@ -107,26 +107,6 @@ class ConversationalAgentService {
     - 반드시 한국어 자연어로만 답하라.
     - JSON을 출력하지 마라.
     ''';
-  }
-
-  /// Tutor 프롬프트에 포함할 학습 자료 블록 생성.
-  /// 실험: 고정 학습 자료(CBBF)를 요약/절삭 없이 전문 통짜로 제공한다.
-  String _buildTutorResourcesBlock(ResourceCache cache) {
-    if (!cache.isResourceReady) return '';
-
-    final buffer = StringBuffer();
-    buffer.writeln('\n[학습 자료]');
-    buffer.writeln('아래 자료에 근거하여 학습을 진행하라. (영문 자료이나 설명은 한국어로 하라)');
-
-    for (final resource in cache.learningResources) {
-      buffer.writeln('## ${resource.title}');
-      buffer.writeln(resource.summary);
-      if (resource.url.isNotEmpty) {
-        buffer.writeln('(출처: ${resource.url})');
-      }
-    }
-
-    return buffer.toString();
   }
 
   /// Analyst 모드: 사용자의 학습 정보를 수집하는 Micro-Agent

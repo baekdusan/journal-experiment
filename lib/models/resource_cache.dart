@@ -105,6 +105,24 @@ class ResourceCache {
   // 학습 자료(CBBF)만 준비되면 ready로 판정한다.
   bool get isResourceReady => learningResources.isNotEmpty;
 
+  /// 프롬프트에 삽입할 학습 자료 블록.
+  /// 처치군 Tutor와 대조군 free form이 동일 텍스트를 쓰도록 한곳에서 생성한다.
+  /// (실험 통제: 양 조건의 자료 제시를 글자 단위로 일치시킴)
+  String toPromptBlock() {
+    if (!isResourceReady) return '';
+    final buffer = StringBuffer();
+    buffer.writeln('[학습 자료]');
+    buffer.writeln('아래 자료에 근거하여 학습을 진행하라. (영문 자료이나 설명은 한국어로 하라)');
+    for (final resource in learningResources) {
+      buffer.writeln('## ${resource.title}');
+      buffer.writeln(resource.summary);
+      if (resource.url.isNotEmpty) {
+        buffer.writeln('(출처: ${resource.url})');
+      }
+    }
+    return buffer.toString();
+  }
+
   ResourceCache copyWith({
     String? subject,
     String? sourceId,
