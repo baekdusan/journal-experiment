@@ -101,8 +101,9 @@ class ResourceCache {
     this.lastFetchedAt,
   });
 
-  bool get isResourceReady =>
-      learningResources.isNotEmpty && instructionalTheories.isNotEmpty;
+  // 실험 브랜치: 교수이론(instructionalTheories) 미사용.
+  // 학습 자료(CBBF)만 준비되면 ready로 판정한다.
+  bool get isResourceReady => learningResources.isNotEmpty;
 
   ResourceCache copyWith({
     String? subject,

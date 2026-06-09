@@ -300,110 +300,6 @@ final class SessionExportServiceProvider
 String _$sessionExportServiceHash() =>
     r'c98ab9ebd79e4f4d62d6455bd6f17ea623addc92';
 
-/// [WikidataClient]의 싱글톤 인스턴스 제공.
-///
-/// 학습 주제에 대한 개념 정보를 Wikidata에서 검색합니다.
-
-@ProviderFor(wikidataClient)
-final wikidataClientProvider = WikidataClientProvider._();
-
-/// [WikidataClient]의 싱글톤 인스턴스 제공.
-///
-/// 학습 주제에 대한 개념 정보를 Wikidata에서 검색합니다.
-
-final class WikidataClientProvider
-    extends $FunctionalProvider<WikidataClient, WikidataClient, WikidataClient>
-    with $Provider<WikidataClient> {
-  /// [WikidataClient]의 싱글톤 인스턴스 제공.
-  ///
-  /// 학습 주제에 대한 개념 정보를 Wikidata에서 검색합니다.
-  WikidataClientProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'wikidataClientProvider',
-        isAutoDispose: false,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$wikidataClientHash();
-
-  @$internal
-  @override
-  $ProviderElement<WikidataClient> $createElement($ProviderPointer pointer) =>
-      $ProviderElement(pointer);
-
-  @override
-  WikidataClient create(Ref ref) {
-    return wikidataClient(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(WikidataClient value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<WikidataClient>(value),
-    );
-  }
-}
-
-String _$wikidataClientHash() => r'520c6d8a89c5ca1d376d30521b5e313a9b53a45c';
-
-/// [RagService]의 싱글톤 인스턴스 제공.
-///
-/// 교수설계 PDF에서 관련 이론을 벡터 검색합니다.
-
-@ProviderFor(ragService)
-final ragServiceProvider = RagServiceProvider._();
-
-/// [RagService]의 싱글톤 인스턴스 제공.
-///
-/// 교수설계 PDF에서 관련 이론을 벡터 검색합니다.
-
-final class RagServiceProvider
-    extends $FunctionalProvider<RagService, RagService, RagService>
-    with $Provider<RagService> {
-  /// [RagService]의 싱글톤 인스턴스 제공.
-  ///
-  /// 교수설계 PDF에서 관련 이론을 벡터 검색합니다.
-  RagServiceProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'ragServiceProvider',
-        isAutoDispose: false,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
-
-  @override
-  String debugGetCreateSourceHash() => _$ragServiceHash();
-
-  @$internal
-  @override
-  $ProviderElement<RagService> $createElement($ProviderPointer pointer) =>
-      $ProviderElement(pointer);
-
-  @override
-  RagService create(Ref ref) {
-    return ragService(ref);
-  }
-
-  /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(RagService value) {
-    return $ProviderOverride(
-      origin: this,
-      providerOverride: $SyncValueProvider<RagService>(value),
-    );
-  }
-}
-
-String _$ragServiceHash() => r'97ab3e69d4c719fd40b99d0dc9eee0d6883e015e';
-
 /// [StepProgressService]의 싱글톤 인스턴스 제공.
 ///
 /// in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정합니다.
@@ -858,7 +754,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'30b49cfbb034f96b0ae473b3ee7296f583da2d81';
+String _$chatControllerHash() => r'cc6b9a00e5254eb53f351a632bb03edc416f7f30';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

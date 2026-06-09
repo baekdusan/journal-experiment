@@ -23,7 +23,9 @@ class AiModels {
       ModelSpec('gemini-2.5-flash', 'us-central1');
 
   /// 튜터 스트리밍 응답용.
-  static const ModelSpec tutor = ModelSpec('gemini-2.5-flash', 'us-central1');
+  /// 실험: 대조군(free form)과 backbone을 동일하게 맞추기 위해 designer와 같은
+  /// gemini-3.5-flash/global을 사용한다. (콘텐츠 생성능력을 교란변인으로 통제)
+  static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
 
   /// 교수설계(Syllabus) 생성용. 강한 추론 모델을 global에서 사용.
   /// global이 불안정하면 ModelSpec('gemini-2.5-flash', 'us-central1')로 폴백.

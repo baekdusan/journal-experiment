@@ -97,7 +97,7 @@ class ConversationalAgentService {
     7) 설명은 지나치게 짧지 않게 3~6문장 정도로 충분히 풀어라.
     8) 사용자가 "그냥 알려줘"라고 하면 질문 없이 설명만 하라.
     9) 로드맵의 모든 내용을 충분히 다뤘다고 판단되면, 학습 완료 여부를 자연스럽게 물어보라.
-    10) 참고 자료를 활용할 때는 반드시 URL 링크를 함께 제공하라.
+    10) 학습 자료의 내용에 근거하여 설명하고, 자료에 없는 사실을 지어내지 마라.
     11) 교수설계 이론을 적용하여 효과적으로 학습을 안내하라.
 
     [입력]
@@ -109,34 +109,21 @@ class ConversationalAgentService {
     ''';
   }
 
-  /// Tutor 프롬프트에 포함할 리소스 블록 생성
+  /// Tutor 프롬프트에 포함할 학습 자료 블록 생성.
+  /// 실험: 고정 학습 자료(CBBF)를 요약/절삭 없이 전문 통짜로 제공한다.
   String _buildTutorResourcesBlock(ResourceCache cache) {
     if (!cache.isResourceReady) return '';
 
     final buffer = StringBuffer();
-    buffer.writeln('\n[참고 자료]');
+    buffer.writeln('\n[학습 자료]');
+    buffer.writeln('아래 자료에 근거하여 학습을 진행하라. (영문 자료이나 설명은 한국어로 하라)');
 
-    // Wikidata 학습 자료 (최대 3개로 제한 - 토큰 효율)
-    if (cache.learningResources.isNotEmpty) {
-      buffer.writeln('## 학습 자료 (설명에 활용 가능)');
-      final limitedResources = cache.learningResources.take(3);
-      for (final resource in limitedResources) {
-        buffer.writeln('- ${resource.title}');
-        buffer.writeln('  요약: ${resource.summary}');
-        buffer.writeln('  링크: ${resource.url}');
+    for (final resource in cache.learningResources) {
+      buffer.writeln('## ${resource.title}');
+      buffer.writeln(resource.summary);
+      if (resource.url.isNotEmpty) {
+        buffer.writeln('(출처: ${resource.url})');
       }
-      buffer.writeln();
-    }
-
-    // 교수설계 이론 (이름만 나열 - 토큰 절약)
-    if (cache.instructionalTheories.isNotEmpty) {
-      buffer.writeln('## 적용 중인 교수설계 이론');
-      final theoryNames = cache.instructionalTheories
-          .map((t) => t.theoryName)
-          .take(5)
-          .join(', ');
-      buffer.writeln('- $theoryNames');
-      buffer.writeln('(이 이론들을 참고하여 효과적인 학습 경험을 제공하라)');
     }
 
     return buffer.toString();

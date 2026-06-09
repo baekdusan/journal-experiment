@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:uuid/uuid.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/chat_session.dart';
@@ -15,8 +16,6 @@ import '../services/conversational_agent_service.dart';
 import '../services/syllabus_designer_service.dart';
 import '../services/step_progress_service.dart';
 import '../services/session_export_service.dart';
-import '../services/wikidata_client.dart';
-import '../services/rag_service.dart';
 import '../models/resource_cache.dart';
 
 part 'chat_provider.g.dart';
@@ -60,22 +59,6 @@ SyllabusDesignerService syllabusDesignerService(Ref ref) {
 @Riverpod(keepAlive: true)
 SessionExportService sessionExportService(Ref ref) {
   return SessionExportService();
-}
-
-/// [WikidataClient]의 싱글톤 인스턴스 제공.
-///
-/// 학습 주제에 대한 개념 정보를 Wikidata에서 검색합니다.
-@Riverpod(keepAlive: true)
-WikidataClient wikidataClient(Ref ref) {
-  return WikidataClient();
-}
-
-/// [RagService]의 싱글톤 인스턴스 제공.
-///
-/// 교수설계 PDF에서 관련 이론을 벡터 검색합니다.
-@Riverpod(keepAlive: true)
-RagService ragService(Ref ref) {
-  return RagService();
 }
 
 /// [StepProgressService]의 싱글톤 인스턴스 제공.
@@ -901,15 +884,7 @@ class ChatController extends _$ChatController {
         // 4. 생성된 커리큘럼과 이론으로 상태 업데이트
         // ============================================================
 
-        // 4-1. theories를 resourceCache에 업데이트
-        if (theories.isNotEmpty) {
-          final updatedCache = learning.resourceCache.copyWith(
-            instructionalTheories: theories,
-          );
-          await ref
-              .read(learningStateProvider.notifier)
-              .setResourceCache(updatedCache);
-        }
+        // 4-1. (실험 브랜치) 교수이론 미사용 — theories 저장 생략
 
         // 4-2. syllabus 업데이트
         await ref
@@ -1117,92 +1092,45 @@ class ChatController extends _$ChatController {
   /// Graceful Degradation:
   /// - 검색 실패 시에도 앱은 정상 동작 (빈 캐시로 진행)
   Future<void> _fetchAndCacheResources(String subject) async {
-    _log('resource.fetch.start', {'subject': subject});
+    _log('resource.load.start', {'subject': subject});
 
-    final wikidataClient = ref.read(wikidataClientProvider);
-    final ragService = ref.read(ragServiceProvider);
+    // 실험 브랜치: 실시간 Wikidata/RAG 검색 대신
+    // 사전 고정된 로컬 학습 자료(CBBF 가이드)를 로드한다.
+    // 주제가 블록체인으로 고정되므로 자료도 단일 고정본을 사용한다.
+    String guideText = '';
+    try {
+      guideText =
+          await rootBundle.loadString('assets/experiment/cbbf_guide.txt');
+    } catch (e) {
+      _log('resource.load.error', {'error': e.toString()});
+    }
 
-    // 병렬로 검색 실행
-    final results = await Future.wait([
-      _fetchWikidataResources(wikidataClient, subject),
-      _fetchRagChunks(ragService),
-    ]);
+    final learningResources = guideText.isEmpty
+        ? <LearningResource>[]
+        : [
+            LearningResource(
+              title:
+                  'CBBF Official Exam Study Guide (Certified Blockchain Business Foundations)',
+              url: '',
+              summary: guideText,
+              resourceType: 'cbbf_local_guide',
+            ),
+          ];
 
-    final learningResources = results[0] as List<LearningResource>;
-    final ragChunks = results[1] as List<RetrievedChunk>;
-
-    // RAG 청크를 InstructionalTheory 형태로 임시 저장
-    // (실제 정제된 theories는 SyllabusDesigner가 생성)
-    final instructionalTheories = ragChunks
-        .map((chunk) {
-          final sourceChunk = SourceChunk(
-            pageNumber: chunk.pageNumber,
-            sectionHeader: chunk.sectionHeader,
-            content: chunk.content,
-          );
-          return InstructionalTheory(
-            theoryName: chunk.sectionHeader ?? 'Theory',
-            description: chunk.content,
-            applicability: '',
-            rawChunks: [sourceChunk],
-          );
-        })
-        .toList();
-
-    // 캐시 저장
     final cache = ResourceCache(
       subject: subject,
-      sourceId: '${subject}_${DateTime.now().millisecondsSinceEpoch}',
+      sourceId: 'cbbf_fixed_v1',
       learningResources: learningResources,
-      instructionalTheories: instructionalTheories,
+      instructionalTheories: const [], // 실험: 교수이론 미사용
       lastFetchedAt: DateTime.now(),
     );
 
     await ref.read(learningStateProvider.notifier).setResourceCache(cache);
 
-    _log('resource.fetch.complete', {
+    _log('resource.load.complete', {
       'subject': subject,
-      'learningResources': learningResources.length,
-      'ragChunks': ragChunks.length,
+      'guideChars': guideText.length,
     });
-  }
-
-  /// Wikidata에서 주제 관련 개념 정보 검색
-  Future<List<LearningResource>> _fetchWikidataResources(
-    WikidataClient client,
-    String subject,
-  ) async {
-    try {
-      final entity = await client.fetchByTopic(subject);
-      if (entity == null) return [];
-
-      return [
-        LearningResource(
-          title: entity.label,
-          url: 'https://www.wikidata.org/wiki/${entity.id}',
-          summary: entity.description,
-          resourceType: 'wikidata_concept',
-        ),
-      ];
-    } catch (e) {
-      _log('wikidata.error', {'error': e.toString()});
-      return [];
-    }
-  }
-
-  /// RAG에서 교수설계 이론 청크 검색
-  /// (실제 이론 추출은 SyllabusDesigner가 수행)
-  Future<List<RetrievedChunk>> _fetchRagChunks(RagService service) async {
-    try {
-      final chunks = await service.retrieve(
-        'instructional design theory learning method teaching strategy pedagogy',
-        topK: 5,
-      );
-      return chunks;
-    } catch (e) {
-      _log('rag.error', {'error': e.toString()});
-      return [];
-    }
   }
 
   /// ============================================================
