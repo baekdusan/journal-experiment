@@ -1,3 +1,13 @@
+/// 실험 조건 (피험자 간 2조건 설계).
+enum ExperimentCondition {
+  /// 처치군: 구조화 오케스트레이션
+  /// (Intent 분류 · Analyst · Feedback · Syllabus Designer · 단계 추적 · 로드맵).
+  treatment,
+
+  /// 대조군: free form 단일 호출 (구조화 오케스트레이션 없음).
+  control,
+}
+
 /// 실험 조건 토글.
 ///
 /// 이 파일의 플래그는 "학습자에게 무엇을 노출하는가"만 제어하며,
@@ -15,4 +25,25 @@ class ExperimentConfig {
   ///
   /// 실험에서 로드맵 가시성 자체를 조작/제거하려면 이 값만 바꾸면 된다.
   static const bool showLearningRoadmap = true;
+
+  /// URL 쿼리 파라미터로 처치/대조 조건을 결정한다.
+  ///
+  /// 예) `https://HOST/?condition=control`   → 대조군(free form)
+  ///     `https://HOST/?condition=treatment` → 처치군(구조화)
+  ///
+  /// 미지정/오타 시 기본은 [ExperimentCondition.treatment].
+  /// 참가자별로 다른 링크를 배포해 조건을 통제하고 세션 로그에도 기록한다.
+  static ExperimentCondition get condition {
+    final c = Uri.base.queryParameters['condition']?.toLowerCase().trim();
+    if (c == 'control' || c == 'freeform' || c == 'free') {
+      return ExperimentCondition.control;
+    }
+    return ExperimentCondition.treatment;
+  }
+
+  static bool get isControl => condition == ExperimentCondition.control;
+  static bool get isTreatment => !isControl;
+
+  /// 로그/내보내기에 기록할 조건 라벨.
+  static String get conditionLabel => condition.name;
 }

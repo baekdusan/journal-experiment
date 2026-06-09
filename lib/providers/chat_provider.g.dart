@@ -359,6 +359,65 @@ final class StepProgressServiceProvider
 String _$stepProgressServiceHash() =>
     r'072f845bc835f654df09cda3a7f6e8a91295ad95';
 
+/// [FreeformAgentService]의 싱글톤 인스턴스 제공.
+///
+/// 대조군(free form) 단일 호출 튜터 프롬프트를 생성합니다.
+
+@ProviderFor(freeformAgentService)
+final freeformAgentServiceProvider = FreeformAgentServiceProvider._();
+
+/// [FreeformAgentService]의 싱글톤 인스턴스 제공.
+///
+/// 대조군(free form) 단일 호출 튜터 프롬프트를 생성합니다.
+
+final class FreeformAgentServiceProvider
+    extends
+        $FunctionalProvider<
+          FreeformAgentService,
+          FreeformAgentService,
+          FreeformAgentService
+        >
+    with $Provider<FreeformAgentService> {
+  /// [FreeformAgentService]의 싱글톤 인스턴스 제공.
+  ///
+  /// 대조군(free form) 단일 호출 튜터 프롬프트를 생성합니다.
+  FreeformAgentServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'freeformAgentServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$freeformAgentServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<FreeformAgentService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  FreeformAgentService create(Ref ref) {
+    return freeformAgentService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(FreeformAgentService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<FreeformAgentService>(value),
+    );
+  }
+}
+
+String _$freeformAgentServiceHash() =>
+    r'cf57a2fac31b632851cf79fe0e325a47b1f78d2d';
+
 /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
 ///
 /// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
@@ -754,7 +813,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'cc6b9a00e5254eb53f351a632bb03edc416f7f30';
+String _$chatControllerHash() => r'2222c1755d54a050ed114f4e2a59a782971ecba1';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

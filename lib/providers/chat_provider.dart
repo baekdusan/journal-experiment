@@ -15,7 +15,9 @@ import '../services/intent_classifier_service.dart';
 import '../services/conversational_agent_service.dart';
 import '../services/syllabus_designer_service.dart';
 import '../services/step_progress_service.dart';
+import '../services/freeform_agent_service.dart';
 import '../services/session_export_service.dart';
+import '../config/experiment_config.dart';
 import '../models/resource_cache.dart';
 
 part 'chat_provider.g.dart';
@@ -67,6 +69,14 @@ SessionExportService sessionExportService(Ref ref) {
 @Riverpod(keepAlive: true)
 StepProgressService stepProgressService(Ref ref) {
   return StepProgressService();
+}
+
+/// [FreeformAgentService]의 싱글톤 인스턴스 제공.
+///
+/// 대조군(free form) 단일 호출 튜터 프롬프트를 생성합니다.
+@Riverpod(keepAlive: true)
+FreeformAgentService freeformAgentService(Ref ref) {
+  return FreeformAgentService();
 }
 
 /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
@@ -297,6 +307,16 @@ class ChatController extends _$ChatController {
 
     // 사용자 메시지를 세션에 추가
     _appendMessage(session.id, Message(role: MessageRole.user, content: text));
+
+    // ============================================================
+    // 실험 대조군(free form): 구조화 라우팅을 모두 건너뛰고
+    // 단일 프롬프트로 자유 대화 튜터링만 수행한다.
+    // ============================================================
+    if (ExperimentConfig.isControl) {
+      _log('condition', {'turn': _turnCounter, 'value': 'control'});
+      await _runFreeformFlow(session.id, text);
+      return;
+    }
 
     // ============================================================
     // 2. 현재 학습 상태 조회 및 로깅
@@ -653,6 +673,96 @@ class ChatController extends _$ChatController {
       } else {
         _appendSystemMessage(sessionId, '튜터 응답을 생성하는 중 오류가 발생했어요.');
       }
+    }
+  }
+
+  /// 대조군(free form) 전용 처리 흐름.
+  ///
+  /// 처치군의 상태 기반 라우팅(Intent · Analyst · Feedback · Syllabus ·
+  /// 단계 추적)을 모두 건너뛰고, 고정 학습 자료(CBBF)와 대화 히스토리만으로
+  /// 단일 프롬프트를 구성해 스트리밍 튜터링을 수행한다.
+  /// backbone 모델 · 자료 · 스트리밍 방식은 처치군 Tutor와 동일하게 통제된다.
+  Future<void> _runFreeformFlow(String sessionId, String userText) async {
+    String? assistantId;
+    try {
+      // 자료 준비 (최초 1회): 주제가 블록체인으로 고정이므로 고정 자료를 로드한다.
+      var learning = ref.read(learningStateProvider);
+      if (!learning.resourceCache.isResourceReady) {
+        await _fetchAndCacheResources('블록체인');
+        learning = ref.read(learningStateProvider);
+      }
+
+      final freeform = ref.read(freeformAgentServiceProvider);
+      final history = _buildHistory(sessionId, userText, limit: 6);
+      final prompt = freeform.buildFreeformPrompt(
+        learning.resourceCache,
+        userText,
+        history,
+      );
+
+      assistantId = const Uuid().v4();
+      _appendMessage(
+        sessionId,
+        Message(
+          id: assistantId,
+          role: MessageRole.model,
+          content: '',
+          isStreaming: true,
+        ),
+      );
+
+      final gemini = ref.read(geminiServiceProvider);
+      final session =
+          ref.read(chatSessionsProvider).firstWhere((s) => s.id == sessionId);
+      final stream = gemini.streamResponse(
+        session.messages.where((m) => m.id != assistantId).toList(),
+        prompt,
+      );
+
+      ref.read(streamingMessageProvider.notifier).start(assistantId);
+
+      String fullResponse = '';
+      await for (final chunk in stream) {
+        fullResponse += chunk;
+        ref.read(streamingMessageProvider.notifier).appendChunk(chunk);
+      }
+
+      ref.read(streamingMessageProvider.notifier).clear();
+
+      final finalSessions = ref.read(chatSessionsProvider);
+      final finalSession = finalSessions.firstWhere((s) => s.id == sessionId);
+      final finalMessages = [
+        for (final m in finalSession.messages)
+          if (m.id == assistantId)
+            m.copyWith(content: fullResponse, isStreaming: false)
+          else
+            m,
+      ];
+      ref
+          .read(chatSessionsProvider.notifier)
+          .updateSession(finalSession.copyWith(messages: finalMessages));
+    } catch (e) {
+      ref.read(streamingMessageProvider.notifier).clear();
+      if (assistantId != null) {
+        final sessions = ref.read(chatSessionsProvider);
+        final session = sessions.firstWhere((s) => s.id == sessionId);
+        final updatedMessages = [
+          for (final m in session.messages)
+            if (m.id == assistantId)
+              m.copyWith(
+                content: '응답 생성 중 오류가 발생했어요. 다시 시도해 주세요.',
+                isStreaming: false,
+              )
+            else
+              m,
+        ];
+        ref
+            .read(chatSessionsProvider.notifier)
+            .updateSession(session.copyWith(messages: updatedMessages));
+      } else {
+        _appendSystemMessage(sessionId, '응답을 생성하는 중 오류가 발생했어요.');
+      }
+      _log('freeform.error', {'error': e.toString()});
     }
   }
 
