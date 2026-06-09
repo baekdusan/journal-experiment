@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_ai/firebase_ai.dart';
+import '../config/ai_models.dart';
 import '../models/learning_state.dart';
 import '../models/learner_profile.dart';
 import '../models/resource_cache.dart';
@@ -54,11 +55,17 @@ class ConversationalAgentService {
     final toneForResponse = profile.tonePreference?.name ?? 'kind';
     final historyBlock = history.isEmpty ? '없음' : history.join('\n');
 
+    // 진행 마킹: ✓ 완료 / ▶ 현재 / ○ 예정
+    final curIdx = state.currentStepIndex;
     final syllabusBlock = design.syllabus.asMap().entries.map((e) {
-      final idx = e.key + 1;
+      final idx = e.key;
       final step = e.value;
-      return '$idx. ${step.topic} - ${step.objective}';
+      final mark = idx < curIdx ? '✓' : (idx == curIdx ? '▶' : '○');
+      return '$mark ${idx + 1}. ${step.topic} - ${step.objective}';
     }).join('\n');
+
+    final currentStepLine =
+        '${state.progressLabel} — ${state.currentStep?.topic ?? '-'}';
 
     final resourcesBlock = _buildTutorResourcesBlock(cache);
 
@@ -70,6 +77,7 @@ class ConversationalAgentService {
     - 목표(goal): ${profile.goal}
     - 수준(level): $level
     - 선호 말투(tone_preference): $toneDisplay
+    - 현재 단계: $currentStepLine
 
     [학습 로드맵]
     $syllabusBlock
@@ -83,7 +91,7 @@ class ConversationalAgentService {
     1) 정답을 먼저 말하지 마라. (비계 설정/Scaffolding)
     2) 사용자가 어렵다고 하면 더 쉬운 설명과 더 작은 예시로 내려가라.
     3) 이해 확인 질문은 필요할 때만 0~1개로 제한하라.
-    4) 로드맵을 참고하되, 대화 흐름에 따라 유연하게 진행하라.
+    4) ▶ 표시된 현재 단계의 학습목표 달성에 집중하라. ✓ 표시된 단계는 사용자가 복습을 요청하지 않는 한 다시 설명하지 마라.
     5) 말투는 $toneForResponse에 맞춰라.
     6) tone_preference가 미정이면 기본적으로 kind 말투로 응답하라.
     7) 설명은 지나치게 짧지 않게 3~6문장 정도로 충분히 풀어라.
@@ -198,8 +206,9 @@ class ConversationalAgentService {
     // ============================================================
     // 2. Firebase AI (Gemini) 모델 설정
     // ============================================================
-    final model = FirebaseAI.vertexAI().generativeModel(
-      model: 'gemini-2.0-flash', // 빠르고 정확한 분류/추출용 모델
+    final model =
+        FirebaseAI.vertexAI(location: AiModels.extractor.location).generativeModel(
+      model: AiModels.extractor.model, // 빠르고 정확한 분류/추출용 모델
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json', // JSON 응답 강제
         responseSchema: schema, // 위에서 정의한 스키마 적용
@@ -318,8 +327,9 @@ class ConversationalAgentService {
       optionalProperties: ['redesign_request'],
     );
 
-    final model = FirebaseAI.vertexAI().generativeModel(
-      model: 'gemini-2.0-flash',
+    final model =
+        FirebaseAI.vertexAI(location: AiModels.extractor.location).generativeModel(
+      model: AiModels.extractor.model,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: schema,
@@ -363,26 +373,41 @@ class ConversationalAgentService {
     final level = profile.level?.name ?? '미정';
     final tone = profile.tonePreference?.name ?? '미정';
     return '''너는 학습자의 정보를 수집하는 튜터다.
-    자연스러운 대화를 통해 학습자의 학습 주제(subject), 목표(goal), 수준(level), 선호 말투(tone_preference)를 파악하라.
+    자연스러운 대화를 통해 학습자의 학습 주제(subject), 목표(goal), 수준(level)을 파악하라.
 
-    [수집할 정보]
+    [수집할 정보 - 이 세 가지만 적극적으로 파악한다]
     - subject: 무엇을 배우고 싶은가?
     - goal: 이 학습으로 무엇을 하고 싶은가?
     - level: beginner/intermediate/expert 중 하나
-    - tone_preference: kind/formal/casual 중 하나
+
+    [말투(tone_preference)에 대한 규칙]
+    - 말투는 먼저 묻지 마라. 기본적으로 친근한 말투로 진행된다.
+    - 사용자가 "편하게 말해줘", "존댓말로 해줘"처럼 말투를 직접 요청한 경우에만
+      tone_preference를 채우고 explicit_fields.tone_preference=true로 둔다.
+    - 그 외에는 항상 tone_preference=null, explicit_fields.tone_preference=false로 둔다.
 
     [대화 원칙]
     1) 이미 파악된 정보는 다시 묻지 마라.
     2) 사용자가 이미 답한 정보는 extracted_info에 반드시 반영하라.
-    3) 필수 정보(subject, goal, level, tone_preference)가 모두 파악되어도
+    3) 필수 정보(subject, goal, level)가 모두 파악되어도
       "이제 로드맵을 만들겠다"는 식의 확정 문구는 직접 말하지 마라.
       최종 생성 시작 안내는 시스템이 별도로 처리한다.
       추가 질문은 하지 마라.
-    4) 현재 정보가 '미정'이면 그 정보를 얻기 위한 질문을 우선하라.
+    4) 현재 정보(subject, goal, level)가 '미정'이면 그 정보를 얻기 위한 질문을 우선하라.
     5) 사용자가 명시적으로 언급하지 않은 값은 절대 추측하지 말고 null로 두어라.
     6) explicit_fields에 true로 표시된 항목만 extracted_info에 값을 채우고, 나머지는 null로 두어라.
     7) response에는 사용자가 이번 발화에서 명시적으로 언급한 정보만 언급하라.
     8) 사용자가 말하지 않은 정보를 마치 알고 있는 것처럼 응답하지 마라.
+
+    [explicit_fields 판단 기준 - 매우 중요]
+    explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만 본다.
+    발화의 어조/말투/문체나 일반 상식으로 추론한 것은 명시가 아니므로 반드시 false다.
+    - level: 사용자가 자신의 수준을 직접 말한 경우에만 true.
+      (예: "완전 초보야", "기초는 알아", "전문가 수준이야")
+      주제가 어렵거나 흔하다는 이유로 수준을 추정하지 마라.
+    - tone_preference: 사용자가 말투를 직접 요청한 경우에만 true.
+      (예: "편하게 말해줘", "존댓말로 해줘")
+      사용자가 반말/존댓말로 입력했다는 사실만으로 tone_preference를 명시했다고 보지 마라.
 
     [현재까지 파악된 정보]
     - subject: ${profile.subject}
@@ -392,6 +417,13 @@ class ConversationalAgentService {
 
     [입력]
     $userText
+
+    [판단 예시 - 주제는 어떤 것이든 동일하게 적용]
+    상황: 사용자가 학습 주제만 말하고, 목표·수준·말투는 언급하지 않은 경우
+    → extracted_info: subject=<사용자가 말한 주제>, goal=null, level=null, tone_preference=null
+    → explicit_fields: subject=true, goal=false, level=false, tone_preference=false
+    → response: 그 주제를 배우고 싶다는 점에 공감하고, 다음으로 필요한 정보(예: 목표)를 자연스럽게 되묻는다.
+       (수준이나 말투는 언급하거나 단정하지 않는다)
 
     [출력 규칙]
     - 반드시 JSON만 출력하라.

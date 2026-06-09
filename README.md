@@ -6,7 +6,8 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템
 
 - 현재 앱은 **단일 세션 모드**로 동작합니다.
 - 사이드바와 세션 전환 UI는 제거했고, 한 번에 하나의 학습 흐름만 진행하는 것을 전제로 합니다.
-- 새로 시작하려면 앱을 새로고침하거나 상태를 초기화한 뒤 다시 실행하는 방식으로 운영하면 됩니다.
+- 새로 시작하려면 상단 우측의 **초기화 버튼(↻)** 을 누르면 됩니다. 현재 대화와 학습 상태(SharedPreferences 영속분 포함)가 모두 비워집니다.
+- 비스트리밍 응답(니즈 분석·피드백·로드맵 설계) 준비 중에는 채팅창에 **타이핑 인디케이터**가 표시됩니다.
 
 ## 프로젝트 개요
 
@@ -65,9 +66,11 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템
 │                 │ │ - Feedback 모드 │ │                 │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
         ↓                   ↓                   ↓
-   gemini-2.0-flash   gemini-2.5-flash   gemini-3-flash-preview
-   (Fast, 분류용)      (Balanced)         (Strong Reasoning)
+   gemini-2.5-flash   gemini-2.5-flash   gemini-3.5-flash
+   (분류/추출용)       (튜터 스트리밍)    (교수설계, global)
 ```
+
+> 모델명과 location은 `lib/config/ai_models.dart`(`AiModels`)에 (모델, location) 쌍으로 중앙화되어 있다. 교체 시 이 파일만 수정한다.
 
 ---
 
@@ -77,8 +80,8 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템
 |------|------|
 | 프론트엔드 | Flutter Web |
 | 상태 관리 | Riverpod (코드 생성) |
-| AI 백엔드 | Firebase AI (Vertex AI) |
-| 모델 | Gemini 2.0/2.5/3.0 Flash |
+| AI 백엔드 | Firebase AI (Vertex AI), GCP 프로젝트 `addie-tutor` |
+| 모델 | Gemini 2.5 Flash (분류/튜터), Gemini 3.5 Flash (설계) |
 | 로컬 저장소 | SharedPreferences |
 
 ---
@@ -88,12 +91,16 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템
 ```
 lib/
 ├── main.dart                      # 앱 진입점
-├── firebase_options.dart          # Firebase 설정
+├── firebase_options.dart          # Firebase 설정 (addie-tutor)
+│
+├── config/
+│   ├── ai_models.dart             # ⭐ 모델명·location 중앙 설정 (AiModels)
+│   └── experiment_config.dart     # 실험 조건 토글 (로드맵 가시성 등)
 │
 ├── models/
 │   ├── message.dart               # 채팅 메시지 모델
 │   ├── chat_session.dart          # 채팅 세션 모델
-│   ├── learner_profile.dart       # 학습자 프로파일 (subject, goal, level, tone)
+│   ├── learner_profile.dart       # 학습자 프로파일 (subject·goal·level 필수, tone 선택)
 │   ├── instructional_design.dart  # 교수설계 모델 (Step, Syllabus)
 │   └── learning_state.dart        # 통합 학습 상태
 │
@@ -106,6 +113,7 @@ lib/
 │   ├── intent_classifier_service.dart  # 의도 분류
 │   ├── conversational_agent_service.dart # Analyst/Tutor/Feedback
 │   ├── syllabus_designer_service.dart   # 커리큘럼 생성
+│   ├── step_progress_service.dart  # 단계 진행(이해도) 평가
 │   ├── wikidata_client.dart       # 주제 개념 검색
 │   ├── rag_service.dart           # 교수설계 RAG 검색
 │   └── session_export_service.dart # 세션 JSON 내보내기
@@ -141,7 +149,7 @@ flutter run -d chrome
 
 ```bash
 cd /Users/dusanbaek/research-addie-chatbot
-flutterfire configure --project=your-project-id
+flutterfire configure --project=addie-tutor --platforms=web
 ```
 
 ### 3. RAG 백엔드 실행
@@ -155,6 +163,13 @@ python3 scripts/rag/rag_server.py
 ```
 
 백엔드는 `http://0.0.0.0:5001`에서 뜹니다.
+
+RAG 서버는 Vertex AI 임베딩(`text-embedding-004`)을 호출하며, 기본 프로젝트는 `addie-tutor`입니다
+(`scripts/rag/rag_server.py`의 `VERTEX_PROJECT`). 다른 프로젝트를 쓰려면 환경변수로 덮어쓸 수 있습니다.
+
+```bash
+VERTEX_PROJECT=다른-프로젝트-id python3 scripts/rag/rag_server.py
+```
 
 ### 4. Vertex AI 인증이 안 되어 있을 때
 
@@ -204,7 +219,7 @@ dart pub global activate flutterfire_cli
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 
 # 설정 생성
-flutterfire configure --project=your-project-id
+flutterfire configure --project=addie-tutor --platforms=web
 ```
 
 ### 보안 주의사항

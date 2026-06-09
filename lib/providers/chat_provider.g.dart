@@ -404,6 +404,65 @@ final class RagServiceProvider
 
 String _$ragServiceHash() => r'97ab3e69d4c719fd40b99d0dc9eee0d6883e015e';
 
+/// [StepProgressService]의 싱글톤 인스턴스 제공.
+///
+/// in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정합니다.
+
+@ProviderFor(stepProgressService)
+final stepProgressServiceProvider = StepProgressServiceProvider._();
+
+/// [StepProgressService]의 싱글톤 인스턴스 제공.
+///
+/// in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정합니다.
+
+final class StepProgressServiceProvider
+    extends
+        $FunctionalProvider<
+          StepProgressService,
+          StepProgressService,
+          StepProgressService
+        >
+    with $Provider<StepProgressService> {
+  /// [StepProgressService]의 싱글톤 인스턴스 제공.
+  ///
+  /// in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정합니다.
+  StepProgressServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'stepProgressServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$stepProgressServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<StepProgressService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  StepProgressService create(Ref ref) {
+    return stepProgressService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(StepProgressService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<StepProgressService>(value),
+    );
+  }
+}
+
+String _$stepProgressServiceHash() =>
+    r'072f845bc835f654df09cda3a7f6e8a91295ad95';
+
 /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
 ///
 /// `isDesigning`이 syllabus 설계 단계만 가리키는 것과 달리,
@@ -799,7 +858,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'd959409b39656d733917ebc9caea747729b703ff';
+String _$chatControllerHash() => r'30b49cfbb034f96b0ae473b3ee7296f583da2d81';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

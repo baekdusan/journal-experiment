@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../config/experiment_config.dart';
 import '../models/chat_session.dart';
 import '../providers/chat_provider.dart';
 import '../providers/learning_state_provider.dart';
@@ -74,9 +75,17 @@ class _ChatViewState extends ConsumerState<ChatView> {
       }
     });
 
+    // 타이핑 인디케이터가 나타나면 하단으로 스크롤하여 보이게 한다.
+    ref.listen(isProcessingProvider, (previous, next) {
+      if (next == true && previous != true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
+    });
+
     return Column(
       children: [
-        if (learningState.instructionalDesign.syllabus.isNotEmpty)
+        if (ExperimentConfig.showLearningRoadmap &&
+            learningState.instructionalDesign.syllabus.isNotEmpty)
           _buildSyllabusHeader(context, learningState),
         _buildStatusBanner(context, learningState),
         Expanded(
@@ -153,6 +162,11 @@ class _ChatViewState extends ConsumerState<ChatView> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final totalSteps = learningState.instructionalDesign.syllabus.length;
+    final progressLabel = learningState.progressLabel;
+    final currentTopic = learningState.currentStep?.topic ?? '-';
+    final headerText = learningState.isCourseCompleted
+        ? '학습 로드맵 · 완료 ($totalSteps단계)'
+        : '학습 로드맵 · $progressLabel단계 · $currentTopic';
 
     return Container(
       width: double.infinity,
@@ -177,7 +191,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '학습 로드맵 · $totalSteps단계',
+                    headerText,
                     style: theme.textTheme.bodySmall?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: cs.onSurface,
@@ -263,11 +277,24 @@ class _ChatViewState extends ConsumerState<ChatView> {
                       // 로드맵 섹션 헤더
                       _buildSectionHeader(theme, Icons.route, '학습 로드맵'),
                       const SizedBox(height: 12),
-                      // 로드맵 리스트
-                      ...design.syllabus.map((step) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _buildStepCard(theme, step),
-                          )),
+                      // 로드맵 리스트 (✓ 완료 / ▶ 현재 / ○ 예정)
+                      ...design.syllabus.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final step = entry.value;
+                        final isCurrent = !learningState.isCourseCompleted &&
+                            idx == learningState.currentStepIndex;
+                        final isDone = learningState.isCourseCompleted ||
+                            idx < learningState.currentStepIndex;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildStepCard(
+                            theme,
+                            step,
+                            isCurrent: isCurrent,
+                            isDone: isDone,
+                          ),
+                        );
+                      }),
                       // 적용된 교수설계론 섹션
                       if (resourceCache.instructionalTheories.isNotEmpty) ...[
                         const SizedBox(height: 24),
@@ -829,31 +856,40 @@ class _ChatViewState extends ConsumerState<ChatView> {
     }
   }
 
-  Widget _buildStepCard(ThemeData theme, id.Step step) {
+  Widget _buildStepCard(
+    ThemeData theme,
+    id.Step step, {
+    bool isCurrent = false,
+    bool isDone = false,
+  }) {
+    final cs = theme.colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: isCurrent ? cs.surfaceContainerHigh : cs.surface,
         border: Border.all(
-          color: theme.colorScheme.outlineVariant,
+          color: isCurrent ? cs.primary : cs.outlineVariant,
+          width: isCurrent ? 1.5 : 1,
         ),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-          foregroundColor: theme.colorScheme.onSurfaceVariant,
-          child: Text(
-            '${step.step}',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          backgroundColor: isCurrent ? cs.primary : cs.surfaceContainerHighest,
+          foregroundColor: isCurrent ? cs.onPrimary : cs.onSurfaceVariant,
+          child: isDone
+              ? const Icon(Icons.check, size: 18)
+              : Text(
+                  '${step.step}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
         ),
         title: Text(
           step.topic,
           style: TextStyle(
-            fontWeight: FontWeight.normal,
-            color: theme.colorScheme.onSurface,
+            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.normal,
+            color: cs.onSurface,
           ),
         ),
         subtitle: Padding(
@@ -861,10 +897,19 @@ class _ChatViewState extends ConsumerState<ChatView> {
           child: Text(
             step.objective,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: cs.onSurfaceVariant,
             ),
           ),
         ),
+        trailing: isCurrent
+            ? Text(
+                '진행 중',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            : null,
       ),
     );
   }
@@ -893,11 +938,27 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 
   Widget _buildMessageList(ChatSession session) {
+    // 처리 중이고 마지막 메시지가 스트리밍 중이 아닐 때만 타이핑 인디케이터를 표시한다.
+    // (스트리밍 응답은 청크가 직접 버블에 채워지므로 인디케이터가 불필요)
+    final isProcessing = ref.watch(isProcessingProvider);
+    final lastIsStreaming =
+        session.messages.isNotEmpty && session.messages.last.isStreaming;
+    final showTyping = isProcessing && !lastIsStreaming;
+
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 18),
-      itemCount: session.messages.length,
+      itemCount: session.messages.length + (showTyping ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index >= session.messages.length) {
+          return Center(
+            key: const ValueKey('typing-indicator'),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 820),
+              child: const _TypingIndicator(),
+            ),
+          );
+        }
         final message = session.messages[index];
         return Center(
           key: ValueKey(message.id),
@@ -907,6 +968,85 @@ class _ChatViewState extends ConsumerState<ChatView> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 비스트리밍 응답을 준비하는 동안 채팅창에 표시하는 타이핑 인디케이터.
+///
+/// ChatGPT/Gemini처럼 점 3개가 순차적으로 깜빡이며 "답변 준비 중"임을 알린다.
+class _TypingIndicator extends StatefulWidget {
+  const _TypingIndicator();
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: cs.onSurface,
+              child: Icon(Icons.auto_awesome, size: 14, color: cs.surface),
+            ),
+            const SizedBox(width: 12),
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, _) {
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(3, (i) {
+                    // 각 점을 시차를 두고 깜빡이게 한다.
+                    final t = (_controller.value - i * 0.2) % 1.0;
+                    final opacity = 0.3 + 0.7 * (1 - (t * 2 - 1).abs()).clamp(0.0, 1.0);
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2.5),
+                      child: Opacity(
+                        opacity: opacity,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: cs.onSurfaceVariant,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

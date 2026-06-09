@@ -89,4 +89,7 @@ enum StateChangeType {
 
   /// 재설계 요청
   redesignRequested,
+
+  /// 단계 전진 (현재 학습 단계가 다음 단계로 이동)
+  stepAdvanced,
 }

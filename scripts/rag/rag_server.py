@@ -34,7 +34,7 @@ print(f"Connecting to SQLite database at {SQLITE_PATH}...")
 conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
 print("SQLite connection established")
 
-VERTEX_PROJECT = "research-addie-chatbot"
+VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT", "addie-tutor")
 VERTEX_LOCATION = "us-central1"
 VERTEX_EMBEDDING_MODEL = "text-embedding-004"
 

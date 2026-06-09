@@ -1,14 +1,1 @@
-{
-  "flutter": {
-    "platforms": {
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "research-addie-chatbot",
-          "configurations": {
-            "web": "1:1056336670829:web:9eaf40cf41188019184f64"
-          }
-        }
-      }
-    }
-  }
-}
+{"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"addie-tutor","configurations":{"web":"1:631755669437:web:bb9b010936ddb609d71cd4"}}}}}}

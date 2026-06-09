@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:firebase_ai/firebase_ai.dart';
+import '../config/ai_models.dart';
 
 enum IntentResult {
   inClass,
@@ -24,8 +25,9 @@ class IntentClassifierService {
       },
     );
 
-    final model = FirebaseAI.vertexAI().generativeModel(
-      model: 'gemini-2.0-flash',
+    final model =
+        FirebaseAI.vertexAI(location: AiModels.extractor.location).generativeModel(
+      model: AiModels.extractor.model,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: schema,

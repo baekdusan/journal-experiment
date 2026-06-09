@@ -1,5 +1,6 @@
 import 'package:firebase_ai/firebase_ai.dart';
 import '../models/message.dart';
+import '../config/ai_models.dart';
 
 /// Firebase AI(Vertex AI in Firebase)를 통해 Gemini 모델과 통신하는 서비스 클래스.
 ///
@@ -12,8 +13,8 @@ class GeminiService {
 
   GeminiService() {
     // Using Vertex AI backend via Firebase AI
-    _model = FirebaseAI.vertexAI().generativeModel(
-      model: 'gemini-2.5-flash',
+    _model = FirebaseAI.vertexAI(location: AiModels.tutor.location).generativeModel(
+      model: AiModels.tutor.model,
     );
   }
 

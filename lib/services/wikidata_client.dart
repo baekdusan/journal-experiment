@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_ai/firebase_ai.dart';
+import '../config/ai_models.dart';
 
 class WikidataEntity {
   final String id;
@@ -99,8 +100,9 @@ class WikidataClient {
   /// Translate Korean to English using Gemini
   Future<String?> _tryTranslateToEnglish(String korean) async {
     try {
-      final model = FirebaseAI.vertexAI().generativeModel(
-        model: 'gemini-2.0-flash-exp',
+      final model = FirebaseAI.vertexAI(location: AiModels.extractor.location)
+          .generativeModel(
+        model: AiModels.extractor.model,
         generationConfig: GenerationConfig(
           temperature: 0.0,
           maxOutputTokens: 50,

@@ -13,6 +13,7 @@ import '../services/gemini_service.dart';
 import '../services/intent_classifier_service.dart';
 import '../services/conversational_agent_service.dart';
 import '../services/syllabus_designer_service.dart';
+import '../services/step_progress_service.dart';
 import '../services/session_export_service.dart';
 import '../services/wikidata_client.dart';
 import '../services/rag_service.dart';
@@ -75,6 +76,14 @@ WikidataClient wikidataClient(Ref ref) {
 @Riverpod(keepAlive: true)
 RagService ragService(Ref ref) {
   return RagService();
+}
+
+/// [StepProgressService]의 싱글톤 인스턴스 제공.
+///
+/// in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정합니다.
+@Riverpod(keepAlive: true)
+StepProgressService stepProgressService(Ref ref) {
+  return StepProgressService();
 }
 
 /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
@@ -523,7 +532,9 @@ class ChatController extends _$ChatController {
       if (shouldTriggerDesign) {
         _startSyllabusDesign(sessionId, isRedesign: false);
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log('analyst.error', {'error': e.toString()});
+      debugPrint('[Analyst ERROR] $e\n$st');
       _appendSystemMessage(sessionId, '요청을 처리하는 중 오류가 발생했어요. 다시 시도해 주세요.');
     }
   }
@@ -626,6 +637,13 @@ class ChatController extends _$ChatController {
       if (latest.showDesignReady) {
         await ref.read(learningStateProvider.notifier).setDesignReady(false);
       }
+
+      // ============================================================
+      // 7. 단계 진행 평가 (in-class 턴 종료 후)
+      // ============================================================
+      // "앱이 판단" 원칙: StepProgressService는 완료 여부 신호만 생성하고,
+      // 단계 전진(단조 증가)/완료 처리는 여기(앱)에서 수행한다.
+      await _evaluateStepProgress(sessionId, userText);
     } catch (e) {
       // ============================================================
       // 에러 처리: 스트리밍 중단 시 에러 메시지 표시
@@ -652,6 +670,59 @@ class ChatController extends _$ChatController {
       } else {
         _appendSystemMessage(sessionId, '튜터 응답을 생성하는 중 오류가 발생했어요.');
       }
+    }
+  }
+
+  /// ============================================================
+  /// 단계 진행 평가: in-class 튜터 턴 종료 후 호출
+  /// ============================================================
+  ///
+  /// [StepProgressService]로 현재 단계 학습목표 달성 여부(불리언 신호)를 받고,
+  /// 앱이 단조 전진 규칙으로 단계를 전진하거나 수업 완료를 처리한다.
+  ///
+  /// - 완료 신호 + confidence ≥ 0.6 + 마지막 단계 → 수업 완료
+  /// - 완료 신호 + confidence ≥ 0.6 + 그 외 → 다음 단계로 전진
+  /// - 그 외 → 현재 단계 유지
+  Future<void> _evaluateStepProgress(String sessionId, String userText) async {
+    final learning = ref.read(learningStateProvider);
+    final current = learning.currentStep;
+
+    // syllabus가 없거나(자유대화 등) 이미 완료된 경우 평가하지 않는다.
+    if (current == null || learning.isCourseCompleted) return;
+
+    try {
+      final progressSvc = ref.read(stepProgressServiceProvider);
+      final history = _buildHistory(sessionId, userText, limit: 6);
+      final result = await progressSvc.evaluate(
+        currentStep: current,
+        recentHistory: history,
+      );
+
+      _log('step.progress', {
+        'turn': _turnCounter,
+        'index': learning.currentStepIndex,
+        'completed': result.stepCompleted,
+        'confidence': result.confidence,
+      });
+
+      if (!result.stepCompleted || result.confidence < 0.6) return;
+
+      if (learning.isLastStep) {
+        await ref.read(learningStateProvider.notifier).markCourseCompleted();
+        _recordStateChange(sessionId, StateChangeType.courseCompleted, {
+          'completedAtStep': learning.currentStepIndex,
+        });
+      } else {
+        final next = learning.currentStepIndex + 1;
+        await ref.read(learningStateProvider.notifier).setCurrentStep(next);
+        _recordStateChange(sessionId, StateChangeType.stepAdvanced, {
+          'from': learning.currentStepIndex,
+          'to': next,
+        });
+      }
+    } catch (e) {
+      // 진행 평가 실패는 수업 흐름을 막지 않는다 (graceful degradation).
+      _log('step.progress.error', {'error': e.toString()});
     }
   }
 

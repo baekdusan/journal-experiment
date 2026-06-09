@@ -3,6 +3,7 @@ import 'package:firebase_ai/firebase_ai.dart';
 import '../models/learner_profile.dart';
 import '../models/instructional_design.dart';
 import '../models/resource_cache.dart';
+import '../config/ai_models.dart';
 
 class SyllabusDesignerService {
 
@@ -47,8 +48,9 @@ class SyllabusDesignerService {
       },
     );
 
-    final model = FirebaseAI.vertexAI(location: 'global').generativeModel(
-      model: 'gemini-3-flash-preview',
+    final model =
+        FirebaseAI.vertexAI(location: AiModels.designer.location).generativeModel(
+      model: AiModels.designer.model,
       generationConfig: GenerationConfig(
         responseMimeType: 'application/json',
         responseSchema: schema,

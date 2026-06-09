@@ -64,6 +64,7 @@ class LearningStateNotifier extends _$LearningStateNotifier {
       isDesigning: resetDesign ? false : current.isDesigning,
       showDesignReady: resetDesign ? false : current.showDesignReady,
       isCourseCompleted: resetDesign ? false : current.isCourseCompleted,
+      currentStepIndex: resetDesign ? 0 : current.currentStepIndex,
       updatedAt: DateTime.now(),
     );
 
@@ -91,6 +92,21 @@ class LearningStateNotifier extends _$LearningStateNotifier {
       isDesigning: false,
       showDesignReady: true,
       isCourseCompleted: false,
+      // 신규 생성·재설계 모두 이 경로를 거치므로 현재 단계를 0으로 초기화한다.
+      currentStepIndex: 0,
+      updatedAt: DateTime.now(),
+    );
+    await _saveToPrefs();
+  }
+
+  /// 현재 학습 단계를 설정한다(syllabus 범위로 클램프).
+  /// 단조 전진(증가)은 호출부([ChatController])가 완료 신호로 보장한다.
+  Future<void> setCurrentStep(int index) async {
+    final lastIndex = state.instructionalDesign.syllabus.length - 1;
+    final clamped = index.clamp(0, lastIndex < 0 ? 0 : lastIndex);
+    if (clamped == state.currentStepIndex) return;
+    state = state.copyWith(
+      currentStepIndex: clamped,
       updatedAt: DateTime.now(),
     );
     await _saveToPrefs();

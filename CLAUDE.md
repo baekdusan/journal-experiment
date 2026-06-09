@@ -107,14 +107,14 @@ else → _runFeedbackFlow()                   // 피드백 처리
 
 | Service | 역할 | 모델 | 출력 형식 |
 |---------|------|------|----------|
-| `IntentClassifierService` | 수업 내/외 분류 | gemini-2.0-flash | `{intent}` |
-| `ConversationalAgentService.runAnalyst` | 정보 수집 | gemini-2.0-flash | `{extracted_info, response}` |
-| `ConversationalAgentService.runTutor` | 튜터링 (비스트리밍) | gemini-2.5-flash | `{response}` |
+| `IntentClassifierService` | 수업 내/외 분류 | `AiModels.extractor` (gemini-2.5-flash) | `{intent}` |
+| `ConversationalAgentService.runAnalyst` | 정보 수집 | `AiModels.extractor` (gemini-2.5-flash) | `{extracted_info, response}` |
+| `ConversationalAgentService.runTutor` | 튜터링 (비스트리밍) | `AiModels.extractor` (gemini-2.5-flash) | `{response}` |
 | `ConversationalAgentService.buildTutorStreamingPrompt` | 튜터링 프롬프트 생성 | - | String |
-| `ConversationalAgentService.runFeedback` | 피드백 처리 | gemini-2.0-flash | `{profile_update, response, needs_redesign}` |
-| `SyllabusDesignerService` | 커리큘럼 생성 | gemini-3-flash-preview | `{syllabus[]}` |
-| `StepMapperService` | 단계 매핑 | gemini-2.5-flash | `{mapped_step_index, confidence}` |
-| `GeminiService` | 스트리밍 응답 | gemini-2.5-flash | Stream<String> |
+| `ConversationalAgentService.runFeedback` | 피드백 처리 | `AiModels.extractor` (gemini-2.5-flash) | `{profile_update, response, needs_redesign}` |
+| `SyllabusDesignerService` | 커리큘럼 생성 | `AiModels.designer` (gemini-3-flash-preview) | `{syllabus[]}` |
+| `StepProgressService` | 단계 진행 평가 | `AiModels.extractor` (gemini-2.5-flash) | `{...}` |
+| `GeminiService` | 스트리밍 응답 | `AiModels.tutor` (gemini-2.5-flash) | Stream<String> |
 
 ---
 
@@ -191,11 +191,25 @@ isReady = isMandatoryFilled && designFilled
 
 ## Firebase AI Configuration
 
-All services use `FirebaseAI.vertexAI(location: 'global')` for Gemini 3.0 Flash compatibility.
+**GCP/Firebase 프로젝트**: `addie-tutor` (개인 결제 계정, `lib/firebase_options.dart`).
+
+모델명과 location은 `lib/config/ai_models.dart`에 **중앙화**되어 있다. 모델을 갈아끼울 때는 이 파일만 수정한다.
 
 ```dart
-final model = FirebaseAI.vertexAI(location: 'global').generativeModel(
-  model: 'gemini-2.0-flash',  // or 'gemini-2.5-flash', 'gemini-3-flash-preview'
+// lib/config/ai_models.dart
+class AiModels {
+  static const String location  = 'us-central1';        // addie-tutor는 'global' 미라우팅 → 리전 고정
+  static const String extractor = 'gemini-2.5-flash';   // 분류/추출 (구 gemini-2.0-flash, retired)
+  static const String tutor     = 'gemini-2.5-flash';   // 튜터 스트리밍
+  static const String designer  = 'gemini-3-flash-preview'; // 교수설계
+}
+```
+
+각 서비스는 이 상수를 참조한다:
+
+```dart
+final model = FirebaseAI.vertexAI(location: AiModels.location).generativeModel(
+  model: AiModels.extractor,
   generationConfig: GenerationConfig(
     responseMimeType: 'application/json',
     responseSchema: schema,
@@ -203,6 +217,11 @@ final model = FirebaseAI.vertexAI(location: 'global').generativeModel(
   ),
 );
 ```
+
+> 주의: `gemini-2.0-flash`는 Vertex AI에서 retire되어 호출 시 404가 난다. `global` 엔드포인트도 이 프로젝트에서는 라우팅되지 않으므로 `us-central1`을 사용한다.
+> Firebase AI Logic이 Vertex AI를 호출하려면 서비스 에이전트
+> `service-<PROJECT_NUMBER>@gcp-sa-firebasevertexai.iam.gserviceaccount.com`에
+> `roles/aiplatform.user` 권한이 필요하다 (없으면 앱에서 403).
 
 ---
 

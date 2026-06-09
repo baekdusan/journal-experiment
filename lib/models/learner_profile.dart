@@ -32,7 +32,9 @@ class LearnerProfile {
   });
 
   bool get isLearnerProfileFilled {
-    return _isFilled(subject) && _isFilled(goal) && level != null && tonePreference != null;
+    // tone_preference는 필수가 아니다. 미정이면 튜터가 기본 말투(kind)로 진행하고,
+    // 사용자가 명시적으로 말투를 요청할 때만 반영한다.
+    return _isFilled(subject) && _isFilled(goal) && level != null;
   }
 
   bool _isFilled(String? value) {
