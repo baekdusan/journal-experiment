@@ -24,7 +24,7 @@ class ExperimentConfig {
   ///           Tutor는 여전히 현재 단계에 집중하지만, 학습자는 위치를 시각적으로 보지 못한다.
   ///
   /// 실험에서 로드맵 가시성 자체를 조작/제거하려면 이 값만 바꾸면 된다.
-  static const bool showLearningRoadmap = true;
+  static const bool showLearningRoadmap = false;
 
   /// URL 쿼리 파라미터로 처치/대조 조건을 결정한다.
   ///

@@ -11,6 +11,7 @@ import '../models/learning_state.dart';
 import '../models/resource_cache.dart';
 import 'message_bubble.dart';
 import 'chat_input.dart';
+import 'typing_indicator.dart';
 
 /// 현재 활성화된 채팅 세션의 메시지 목록과 입력 영역을 렌더링하는 메인 뷰 위젯.
 ///
@@ -955,7 +956,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
             key: const ValueKey('typing-indicator'),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 820),
-              child: const _TypingIndicator(),
+              child: const TypingIndicator(),
             ),
           );
         }
@@ -972,81 +973,3 @@ class _ChatViewState extends ConsumerState<ChatView> {
   }
 }
 
-/// 비스트리밍 응답을 준비하는 동안 채팅창에 표시하는 타이핑 인디케이터.
-///
-/// ChatGPT/Gemini처럼 점 3개가 순차적으로 깜빡이며 "답변 준비 중"임을 알린다.
-class _TypingIndicator extends StatefulWidget {
-  const _TypingIndicator();
-
-  @override
-  State<_TypingIndicator> createState() => _TypingIndicatorState();
-}
-
-class _TypingIndicatorState extends State<_TypingIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: cs.onSurface,
-              child: Icon(Icons.auto_awesome, size: 14, color: cs.surface),
-            ),
-            const SizedBox(width: 12),
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, _) {
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(3, (i) {
-                    // 각 점을 시차를 두고 깜빡이게 한다.
-                    final t = (_controller.value - i * 0.2) % 1.0;
-                    final opacity = 0.3 + 0.7 * (1 - (t * 2 - 1).abs()).clamp(0.0, 1.0);
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2.5),
-                      child: Opacity(
-                        opacity: opacity,
-                        child: Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: cs.onSurfaceVariant,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
