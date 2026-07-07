@@ -23,9 +23,10 @@ class AiModels {
       ModelSpec('gemini-2.5-flash', 'us-central1');
 
   /// 학습자 대면 스트리밍 응답용 (처치군 Tutor + 대조군 순수 모델 공용).
-  /// 확정 실험설계(260624): 양 조건 모두 gemini-2.5-flash로 통일하고
-  /// Tool.googleSearch() grounding을 공통 활성화한다.
-  static const ModelSpec tutor = ModelSpec('gemini-2.5-flash', 'us-central1');
+  /// 양 조건 모두 gemini-3.5-flash(global)로 통일하고 Tool.googleSearch()
+  /// grounding을 공통 활성화한다 (2026-07-07 확정 — designer와 동일 backbone).
+  /// ※ 확정설계 문서(260624)에는 2.5-flash로 적혀 있으나 3.5 통일로 갱신 필요.
+  static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
 
   /// 교수설계(Syllabus) 생성용. 강한 추론 모델을 global에서 사용.
   /// global이 불안정하면 ModelSpec('gemini-2.5-flash', 'us-central1')로 폴백.
