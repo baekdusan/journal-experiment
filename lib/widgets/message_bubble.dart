@@ -5,10 +5,10 @@ import '../models/message.dart';
 import '../providers/streaming_message_provider.dart';
 import 'typing_indicator.dart';
 
-/// 단일 채팅 메시지를 ChatGPT 5.x 스타일로 표시하는 위젯.
+/// 단일 채팅 메시지를 Gemini 웹 앱 스타일로 표시하는 위젯.
 ///
-/// - **사용자 메시지**: 오른쪽 정렬, 옅은 회색 라운드 버블
-/// - **AI 메시지**: 왼쪽 정렬, 배경 없는 텍스트(마크다운), 모노크롬 아바타
+/// - **사용자 메시지**: 오른쪽 정렬, 회청색(#F0F4F9) 라운드 필 버블
+/// - **AI 메시지**: 왼쪽 정렬, 아바타 없이 배경 없는 텍스트(마크다운)
 ///
 /// **스트리밍 처리:**
 /// - [StreamingMessageProvider]를 감시하여 스트리밍 중인 메시지의 실시간 내용을 표시
@@ -31,25 +31,25 @@ class MessageBubble extends ConsumerWidget {
         : message.content;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment:
             isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          if (!isUser) ...[_buildAvatar(theme), const SizedBox(width: 14)],
           Flexible(
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 720),
+              constraints:
+                  BoxConstraints(maxWidth: isUser ? 560 : 720),
               padding: isUser
-                  ? const EdgeInsets.symmetric(horizontal: 18, vertical: 12)
+                  ? const EdgeInsets.symmetric(horizontal: 20, vertical: 13)
                   : const EdgeInsets.symmetric(vertical: 2),
               decoration: BoxDecoration(
                 color: isUser
                     ? theme.colorScheme.surfaceContainerHigh
                     : Colors.transparent,
                 borderRadius:
-                    isUser ? BorderRadius.circular(22) : BorderRadius.zero,
+                    isUser ? BorderRadius.circular(24) : BorderRadius.zero,
               ),
               child: _buildContent(theme, isUser, displayContent),
             ),
@@ -107,7 +107,7 @@ class MessageBubble extends ConsumerWidget {
         .replaceAllMapped(italicFix, (m) => '${m[1]}*${m[2]}*${m[3]}');
   }
 
-  /// 최신 ChatGPT 톤(monochrome, 가독성 우선)에 맞춘 마크다운 스타일.
+  /// Gemini 톤(가벼운 헤딩, 블루 링크)에 맞춘 마크다운 스타일.
   MarkdownStyleSheet _buildMarkdownStyleSheet(ThemeData theme) {
     final cs = theme.colorScheme;
     final baseTextStyle = theme.textTheme.bodyLarge?.copyWith(
@@ -120,11 +120,11 @@ class MessageBubble extends ConsumerWidget {
       p: baseTextStyle,
       h1: theme.textTheme.headlineSmall?.copyWith(
         color: cs.onSurface,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
       ),
       h2: theme.textTheme.titleLarge?.copyWith(
         color: cs.onSurface,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w500,
       ),
       h3: theme.textTheme.titleMedium?.copyWith(
         color: cs.onSurface,
@@ -144,19 +144,20 @@ class MessageBubble extends ConsumerWidget {
       ),
       code: theme.textTheme.bodyMedium?.copyWith(
         fontFamily: 'monospace',
-        backgroundColor: cs.surfaceContainerHigh,
+        backgroundColor: cs.surfaceContainer,
         color: cs.onSurface,
       ),
       codeblockDecoration: BoxDecoration(
-        color: cs.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(10),
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cs.outlineVariant),
       ),
       codeblockPadding: const EdgeInsets.all(14),
       listBullet: baseTextStyle,
       a: baseTextStyle?.copyWith(
-        color: cs.onSurface,
+        color: cs.primary,
         decoration: TextDecoration.underline,
+        decorationColor: cs.primary,
       ),
       em: baseTextStyle?.copyWith(fontStyle: FontStyle.italic),
       strong: baseTextStyle?.copyWith(fontWeight: FontWeight.w700),
@@ -174,23 +175,6 @@ class MessageBubble extends ConsumerWidget {
       blockquotePadding: const EdgeInsets.only(left: 16),
       blockSpacing: 14.0,
       listIndent: 24.0,
-    );
-  }
-
-  Widget _buildAvatar(ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Container(
-      width: 28,
-      height: 28,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: isDark ? Colors.white : Colors.black,
-      ),
-      child: Icon(
-        Icons.auto_awesome,
-        size: 15,
-        color: isDark ? Colors.black : Colors.white,
-      ),
     );
   }
 }

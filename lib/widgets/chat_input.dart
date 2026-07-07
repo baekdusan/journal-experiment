@@ -6,7 +6,8 @@ import '../providers/learning_state_provider.dart';
 
 /// 사용자가 메시지를 입력하고 전송할 수 있는 입력 영역 위젯.
 ///
-/// 최신 ChatGPT 5.x 톤 — 큰 라운드 카드, 미묘한 섀도우, 검정 원형 전송 버튼.
+/// Gemini 웹 앱 톤 — 보더 없는 완전 라운드 필(pill), 부드러운 섀도우,
+/// 라이트 블루 원형 전송 버튼. 배경은 투명이라 빈 화면의 글로우 위에도 얹힌다.
 class ChatInput extends StatefulWidget {
   const ChatInput({super.key});
 
@@ -61,9 +62,8 @@ class _ChatInputState extends State<ChatInput> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-      color: cs.surface,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -79,16 +79,22 @@ class _ChatInputState extends State<ChatInput> {
                 final canSend = !blocked && hasText;
 
                 return Container(
-                  padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
+                  padding: const EdgeInsets.fromLTRB(22, 10, 10, 10),
                   decoration: BoxDecoration(
-                    color: cs.surface,
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: cs.outlineVariant),
+                    color: theme.brightness == Brightness.dark
+                        ? cs.surfaceContainer
+                        : cs.surface,
+                    borderRadius: BorderRadius.circular(32),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 12,
-                        offset: const Offset(0, 2),
+                        color: Colors.black.withValues(alpha: 0.10),
+                        blurRadius: 18,
+                        offset: const Offset(0, 4),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
@@ -131,7 +137,7 @@ class _ChatInputState extends State<ChatInput> {
                                 height: 1.4,
                               ),
                               decoration: InputDecoration(
-                                hintText: '메시지를 입력하세요',
+                                hintText: '무엇이든 물어보세요',
                                 hintStyle: theme.textTheme.bodyLarge?.copyWith(
                                   color: cs.onSurfaceVariant,
                                   fontSize: 16,
@@ -161,7 +167,7 @@ class _ChatInputState extends State<ChatInput> {
   }
 }
 
-/// 최신 ChatGPT 스타일의 검정 원형 전송 버튼.
+/// Gemini 스타일의 라이트 블루 원형 전송 버튼.
 class _SendButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback onPressed;
@@ -171,13 +177,15 @@ class _SendButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bg = enabled ? cs.primary : cs.outlineVariant;
-    final fg = enabled ? cs.onPrimary : cs.onSurfaceVariant;
+    final bg = enabled ? cs.secondaryContainer : cs.surfaceContainerHighest;
+    final fg = enabled
+        ? cs.onSecondaryContainer
+        : cs.onSurfaceVariant.withValues(alpha: 0.6);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         color: bg,
         shape: BoxShape.circle,

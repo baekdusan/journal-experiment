@@ -64,28 +64,23 @@ class _TypingDotsState extends State<TypingDots>
   }
 }
 
-/// 아바타 + 타이핑 점. 비스트리밍 응답(니즈 분석·피드백·설계)을 준비하는 동안
-/// 채팅 목록 끝에 독립 버블로 표시한다.
+/// 스파클 + 타이핑 점. 비스트리밍 응답(니즈 분석·피드백·설계)을 준비하는 동안
+/// 채팅 목록 끝에 표시한다. (Gemini 스타일 — 파란 스파클)
 class TypingIndicator extends StatelessWidget {
   const TypingIndicator({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Align(
+    return const Align(
       alignment: Alignment.centerLeft,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 10),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: cs.onSurface,
-              child: Icon(Icons.auto_awesome, size: 14, color: cs.surface),
-            ),
-            const SizedBox(width: 12),
-            const TypingDots(),
+            Icon(Icons.auto_awesome, size: 18, color: Color(0xFF4E86FF)),
+            SizedBox(width: 12),
+            TypingDots(),
           ],
         ),
       ),

@@ -83,6 +83,11 @@ class _ChatViewState extends ConsumerState<ChatView> {
       }
     });
 
+    // Gemini 스타일 레이아웃:
+    // - 빈 화면: 라디얼 글로우 배경 + 중앙 인사말 + 중앙 입력 필
+    // - 대화 중: 메시지 리스트 + 하단 입력 필 + 디스클레이머
+    final isEmpty = session == null || session.messages.isEmpty;
+
     return Column(
       children: [
         if (ExperimentConfig.showLearningRoadmap &&
@@ -90,15 +95,34 @@ class _ChatViewState extends ConsumerState<ChatView> {
           _buildSyllabusHeader(context, learningState),
         _buildStatusBanner(context, learningState),
         Expanded(
-          child: Container(
-            color: Theme.of(context).colorScheme.surface,
-            child: session == null || session.messages.isEmpty
-                ? _buildWelcome(context)
-                : _buildMessageList(session),
-          ),
+          child: isEmpty
+              ? _buildWelcome(context)
+              : Container(
+                  color: Theme.of(context).colorScheme.surface,
+                  child: _buildMessageList(session),
+                ),
         ),
-        const ChatInput(),
+        if (!isEmpty) ...[
+          const ChatInput(),
+          _buildDisclaimer(context),
+        ],
       ],
+    );
+  }
+
+  /// Gemini 스타일 하단 디스클레이머.
+  Widget _buildDisclaimer(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+      child: Text(
+        'AI 튜터는 실수를 할 수 있으니 중요한 정보는 다시 확인하세요.',
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 
@@ -915,25 +939,54 @@ class _ChatViewState extends ConsumerState<ChatView> {
     );
   }
 
+  /// Gemini 스타일 빈 화면: 라디얼 블루 글로우 위에 인사말과 입력 필을
+  /// 세로 중앙 정렬로 배치하고, 페이지 하단에 디스클레이머를 둔다.
   Widget _buildWelcome(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '무엇을 도와드릴까요?',
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final glowColor = isDark
+        ? const Color(0xFF0842A0).withValues(alpha: 0.25)
+        : const Color(0xFFD3E3FD).withValues(alpha: 0.9);
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(0, 0.05),
+          radius: 0.85,
+          colors: [glowColor, glowColor.withValues(alpha: 0), ],
+          stops: const [0.0, 1.0],
+        ),
+      ),
+      child: Column(
+        children: [
+          const Spacer(flex: 5),
+          RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontSize: 30,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface,
-                letterSpacing: -0.4,
+                fontWeight: FontWeight.w400,
+                color: cs.onSurface,
+                letterSpacing: -0.3,
+                height: 1.3,
               ),
+              children: const [
+                TextSpan(text: '개인 '),
+                TextSpan(
+                  text: 'AI 튜터',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                TextSpan(text: '와 학습을 시작해 보세요'),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 28),
+          const ChatInput(),
+          const Spacer(flex: 7),
+          _buildDisclaimer(context),
+        ],
       ),
     );
   }

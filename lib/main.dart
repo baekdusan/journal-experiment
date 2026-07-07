@@ -16,27 +16,22 @@ void main() async {
 
 /// 앱의 루트 위젯으로, Material 3 기반의 라이트/다크 테마를 정의한다.
 ///
-/// 최신 ChatGPT(5.x) 톤을 따른다 — 흰 배경, monochrome 액센트, 옅은 회색 사용자 버블.
+/// Google Gemini 웹 앱 톤을 따른다 — 흰 배경, Google Blue 액센트,
+/// 회청색(#F0F4F9) 사용자 버블, 라이트 블루 전송 버튼.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // ChatGPT 5.x 라이트 톤
+  // Gemini 라이트 톤 (Google Material 3 팔레트)
   static const _bgLight = Color(0xFFFFFFFF);
-  static const _surfaceLight = Color(0xFFFFFFFF);
-  static const _userBubbleLight = Color(0xFFF4F4F4);
-  static const _onSurfaceLight = Color(0xFF0D0D0D);
-  static const _onSurfaceVariantLight = Color(0xFF5D5D5D);
-  static const _outlineLight = Color(0xFFE5E5E5);
-  static const _accentLight = Color(0xFF0D0D0D);
+  static const _onSurfaceLight = Color(0xFF1F1F1F);
+  static const _onSurfaceVariantLight = Color(0xFF575B5F);
+  static const _userBubbleLight = Color(0xFFF0F4F9);
 
-  // ChatGPT 5.x 다크 톤
-  static const _bgDark = Color(0xFF212121);
-  static const _surfaceDark = Color(0xFF212121);
-  static const _userBubbleDark = Color(0xFF2F2F2F);
-  static const _onSurfaceDark = Color(0xFFECECEC);
-  static const _onSurfaceVariantDark = Color(0xFFB4B4B4);
-  static const _outlineDark = Color(0xFF424242);
-  static const _accentDark = Color(0xFFFFFFFF);
+  // Gemini 다크 톤
+  static const _bgDark = Color(0xFF131314);
+  static const _onSurfaceDark = Color(0xFFE3E3E3);
+  static const _onSurfaceVariantDark = Color(0xFFC4C7C5);
+  static const _userBubbleDark = Color(0xFF333537);
 
   @override
   Widget build(BuildContext context) {
@@ -48,27 +43,28 @@ class MyApp extends StatelessWidget {
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
         scaffoldBackgroundColor: _bgLight,
         colorScheme: const ColorScheme.light(
-          primary: _accentLight,
+          // Google Blue 계열
+          primary: Color(0xFF0B57D0),
           onPrimary: Colors.white,
-          primaryContainer: Color(0xFFEFEFEF),
-          onPrimaryContainer: _onSurfaceLight,
-          secondary: _onSurfaceVariantLight,
+          primaryContainer: Color(0xFFD3E3FD),
+          onPrimaryContainer: Color(0xFF041E49),
+          secondary: Color(0xFF00639B),
           onSecondary: Colors.white,
-          secondaryContainer: Color(0xFFEFEFEF),
-          onSecondaryContainer: _onSurfaceLight,
-          tertiary: _onSurfaceLight,
+          secondaryContainer: Color(0xFFC2E7FF), // 전송 버튼 (라이트 블루)
+          onSecondaryContainer: Color(0xFF001D35),
+          tertiary: Color(0xFF146C2E),
           onTertiary: Colors.white,
-          tertiaryContainer: Color(0xFFEFEFEF),
-          onTertiaryContainer: _onSurfaceLight,
-          surface: _surfaceLight,
+          tertiaryContainer: Color(0xFFC4EED0),
+          onTertiaryContainer: Color(0xFF072711),
+          surface: _bgLight,
           onSurface: _onSurfaceLight,
-          surfaceContainerLow: Color(0xFFFAFAFA),
-          surfaceContainer: Color(0xFFF9F9F9),
-          surfaceContainerHigh: _userBubbleLight,
-          surfaceContainerHighest: Color(0xFFEDEDED),
+          surfaceContainerLow: Color(0xFFF8FAFD),
+          surfaceContainer: Color(0xFFF0F4F9),
+          surfaceContainerHigh: _userBubbleLight, // 사용자 버블
+          surfaceContainerHighest: Color(0xFFE9EEF6),
           onSurfaceVariant: _onSurfaceVariantLight,
-          outline: Color(0xFFC2C2C2),
-          outlineVariant: _outlineLight,
+          outline: Color(0xFFC4C7C5),
+          outlineVariant: Color(0xFFE1E3E1),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: _bgLight,
@@ -85,27 +81,27 @@ class MyApp extends StatelessWidget {
         fontFamilyFallback: const ['Malgun Gothic', 'Dotum', 'sans-serif'],
         scaffoldBackgroundColor: _bgDark,
         colorScheme: const ColorScheme.dark(
-          primary: _accentDark,
-          onPrimary: _onSurfaceLight,
-          primaryContainer: Color(0xFF333333),
-          onPrimaryContainer: _onSurfaceDark,
-          secondary: _onSurfaceVariantDark,
-          onSecondary: _onSurfaceLight,
-          secondaryContainer: Color(0xFF333333),
-          onSecondaryContainer: _onSurfaceDark,
-          tertiary: _onSurfaceDark,
-          onTertiary: _onSurfaceLight,
-          tertiaryContainer: Color(0xFF333333),
-          onTertiaryContainer: _onSurfaceDark,
-          surface: _surfaceDark,
+          primary: Color(0xFFA8C7FA),
+          onPrimary: Color(0xFF062E6F),
+          primaryContainer: Color(0xFF0842A0),
+          onPrimaryContainer: Color(0xFFD3E3FD),
+          secondary: Color(0xFF7FCFFF),
+          onSecondary: Color(0xFF003355),
+          secondaryContainer: Color(0xFF004A77), // 전송 버튼
+          onSecondaryContainer: Color(0xFFC2E7FF),
+          tertiary: Color(0xFF6DD58C),
+          onTertiary: Color(0xFF0A3818),
+          tertiaryContainer: Color(0xFF0F5223),
+          onTertiaryContainer: Color(0xFFC4EED0),
+          surface: _bgDark,
           onSurface: _onSurfaceDark,
-          surfaceContainerLow: Color(0xFF262626),
-          surfaceContainer: Color(0xFF2A2A2A),
-          surfaceContainerHigh: _userBubbleDark,
-          surfaceContainerHighest: Color(0xFF383838),
+          surfaceContainerLow: Color(0xFF1B1B1C),
+          surfaceContainer: Color(0xFF1E1F20),
+          surfaceContainerHigh: _userBubbleDark, // 사용자 버블
+          surfaceContainerHighest: Color(0xFF444746),
           onSurfaceVariant: _onSurfaceVariantDark,
-          outline: Color(0xFF6E6E6E),
-          outlineVariant: _outlineDark,
+          outline: Color(0xFF8E918F),
+          outlineVariant: Color(0xFF444746),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: _bgDark,

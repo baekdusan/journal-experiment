@@ -19,14 +19,26 @@ class ChatScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 56,
-        title: Text(
-          'ADDIE Tutor',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurface,
-            letterSpacing: -0.2,
-          ),
+        // 참가자에게 조건 정보(ADDIE)가 새지 않도록 중립 명칭을 쓴다.
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.auto_awesome,
+              size: 20,
+              color: Color(0xFF4E86FF),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'AI Tutor',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontSize: 17,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurfaceVariant,
+                letterSpacing: 0,
+              ),
+            ),
+          ],
         ),
         actions: [
           _ExportButton(enabled: canExport),
