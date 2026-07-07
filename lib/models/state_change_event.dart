@@ -92,4 +92,9 @@ enum StateChangeType {
 
   /// 단계 전진 (현재 학습 단계가 다음 단계로 이동)
   stepAdvanced,
+
+  /// Google Search grounding 발동 (검색어·근거 소스 기록)
+  ///
+  /// 확정 실험설계(260624) §6-4의 조절변수 '자료 검색 빈도' 산출에 쓰인다.
+  groundingUsed,
 }

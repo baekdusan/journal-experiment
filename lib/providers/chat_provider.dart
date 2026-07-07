@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:uuid/uuid.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/chat_session.dart';
@@ -15,10 +14,8 @@ import '../services/intent_classifier_service.dart';
 import '../services/conversational_agent_service.dart';
 import '../services/syllabus_designer_service.dart';
 import '../services/step_progress_service.dart';
-import '../services/freeform_agent_service.dart';
 import '../services/session_export_service.dart';
 import '../config/experiment_config.dart';
-import '../models/resource_cache.dart';
 
 part 'chat_provider.g.dart';
 
@@ -69,14 +66,6 @@ SessionExportService sessionExportService(Ref ref) {
 @Riverpod(keepAlive: true)
 StepProgressService stepProgressService(Ref ref) {
   return StepProgressService();
-}
-
-/// [FreeformAgentService]의 싱글톤 인스턴스 제공.
-///
-/// 대조군(free form) 단일 호출 튜터 프롬프트를 생성합니다.
-@Riverpod(keepAlive: true)
-FreeformAgentService freeformAgentService(Ref ref) {
-  return FreeformAgentService();
 }
 
 /// LLM 호출(Analyst/Tutor/Feedback/Designer)이 진행 중인지 표시하는 휘발성 플래그.
@@ -500,15 +489,11 @@ class ChatController extends _$ChatController {
         );
       }
 
-      // ============================================================
-      // 5. Subject 확정 시 → Wikidata/RAG 검색하여 캐시 저장
-      // ============================================================
-      if (result.subject != null && updated.learnerProfile.subject != null) {
-        await _fetchAndCacheResources(updated.learnerProfile.subject!);
-      }
+      // (자료 사전 취득 단계 없음 — 확정 실험설계(260624)에 따라 자료는
+      //  Designer/Tutor가 Google Search grounding으로 호출 시점에 직접 취득한다.)
 
       // ============================================================
-      // 6. 필수 정보 완성 체크 → 자동으로 커리큘럼 생성 시작
+      // 5. 필수 정보 완성 체크 → 자동으로 커리큘럼 생성 시작
       // ============================================================
       final wasMandatory = previous.learnerProfile.isLearnerProfileFilled;
       final shouldTriggerDesign =
@@ -517,7 +502,7 @@ class ChatController extends _$ChatController {
           (forceAnalyst || !wasMandatory);
 
       // ============================================================
-      // 7. 사용자 응답 표시: 로드맵 생성 안내는 앱 상태 기준으로만 제어
+      // 6. 사용자 응답 표시: 로드맵 생성 안내는 앱 상태 기준으로만 제어
       // ============================================================
       if (shouldTriggerDesign) {
         _appendAssistantMessage(
@@ -555,7 +540,7 @@ class ChatController extends _$ChatController {
   ///
   /// 처리 흐름:
   /// 1. 대화 히스토리 구성 (최근 6개)
-  /// 2. buildTutorStreamingPrompt로 프롬프트 생성
+  /// 2. buildTutorSystemInstruction으로 시스템 프롬프트 생성 (매 턴 재빌드)
   /// 3. GeminiService.streamResponse 호출 (스트리밍)
   /// 4. 청크 단위로 수신하며 UI 실시간 업데이트
   /// 5. 완료 후 isStreaming=false 처리
@@ -570,10 +555,10 @@ class ChatController extends _$ChatController {
     String? assistantId;
     try {
       // ============================================================
-      // 1. 대화 히스토리 구성 + 프롬프트 생성
+      // 1. 시스템 프롬프트 생성 (매 턴 상태 반영 재빌드)
       // ============================================================
-      final history = _buildHistory(sessionId, userText, limit: 6);
-      final prompt = agent.buildTutorStreamingPrompt(learning, userText, history);
+      // 자료는 로컬 주입 없이 Google Search grounding으로 모델이 직접 취득한다.
+      final systemInstruction = agent.buildTutorSystemInstruction(learning);
 
       // ============================================================
       // 2. 빈 메시지 생성 (스트리밍 준비)
@@ -593,12 +578,13 @@ class ChatController extends _$ChatController {
       // 3. Gemini 스트리밍 API 호출
       // ============================================================
       final gemini = ref.read(geminiServiceProvider);
-      final session = ref.read(chatSessionsProvider).firstWhere(
-            (s) => s.id == sessionId,
-          );
       final stream = gemini.streamResponse(
-        session.messages.where((m) => m.id != assistantId).toList(),
-        prompt,
+        _recentMessages(sessionId,
+            excludeMessageId: assistantId, currentUserText: userText),
+        userText,
+        systemInstruction: systemInstruction,
+        onGrounding: (queries, sources) =>
+            _logGrounding(sessionId, 'tutor', queries, sources),
       );
 
       // ============================================================
@@ -676,30 +662,16 @@ class ChatController extends _$ChatController {
     }
   }
 
-  /// 대조군(free form) 전용 처리 흐름.
+  /// 대조군(Naive) 전용 처리 흐름.
   ///
-  /// 처치군의 상태 기반 라우팅(Intent · Analyst · Feedback · Syllabus ·
-  /// 단계 추적)을 모두 건너뛰고, 고정 학습 자료(CBBF)와 대화 히스토리만으로
-  /// 단일 프롬프트를 구성해 스트리밍 튜터링을 수행한다.
-  /// backbone 모델 · 자료 · 스트리밍 방식은 처치군 Tutor와 동일하게 통제된다.
+  /// 확정 실험설계(260624): 대조군은 **시스템 프롬프트가 전혀 없는 순수 모델**이다.
+  /// 처치군의 상태 기반 라우팅(Intent · Analyst · Feedback · Syllabus · 단계 추적)을
+  /// 모두 건너뛰고, 사용자 발화를 그대로 모델에 전달한다.
+  /// 모델([AiModels.tutor]) · Google Search grounding · 스트리밍 · 히스토리 리밋은
+  /// 처치군 Tutor와 동일하게 통제된다 (GeminiService 공용).
   Future<void> _runFreeformFlow(String sessionId, String userText) async {
     String? assistantId;
     try {
-      // 자료 준비 (최초 1회): 주제가 블록체인으로 고정이므로 고정 자료를 로드한다.
-      var learning = ref.read(learningStateProvider);
-      if (!learning.resourceCache.isResourceReady) {
-        await _fetchAndCacheResources('블록체인');
-        learning = ref.read(learningStateProvider);
-      }
-
-      final freeform = ref.read(freeformAgentServiceProvider);
-      final history = _buildHistory(sessionId, userText, limit: 6);
-      final prompt = freeform.buildFreeformPrompt(
-        learning.resourceCache,
-        userText,
-        history,
-      );
-
       assistantId = const Uuid().v4();
       _appendMessage(
         sessionId,
@@ -712,11 +684,13 @@ class ChatController extends _$ChatController {
       );
 
       final gemini = ref.read(geminiServiceProvider);
-      final session =
-          ref.read(chatSessionsProvider).firstWhere((s) => s.id == sessionId);
+      // systemInstruction 없이 호출 → 시스템 프롬프트 없는 순수 모델
       final stream = gemini.streamResponse(
-        session.messages.where((m) => m.id != assistantId).toList(),
-        prompt,
+        _recentMessages(sessionId,
+            excludeMessageId: assistantId, currentUserText: userText),
+        userText,
+        onGrounding: (queries, sources) =>
+            _logGrounding(sessionId, 'freeform', queries, sources),
       );
 
       ref.read(streamingMessageProvider.notifier).start(assistantId);
@@ -973,30 +947,30 @@ class ChatController extends _$ChatController {
     _enter();
     Future(() async {
       try {
+        // 설계자는 Google Search grounding으로 기존 커리큘럼·시험 범위를
+        // 조사한 뒤 커리큘럼을 생성한다 (2단계: 검색 조사 → JSON 구조화).
         final designer = ref.read(syllabusDesignerServiceProvider);
         final result = await designer.generate(
           learning.learnerProfile,
-          resourceCache: learning.resourceCache,
           redesignRequest: redesignRequest,
         );
-
         final syllabus = result.syllabus;
-        final theories = result.theories;
 
         _log('design.generated', {
           'turn': _turnCounter,
           'steps': syllabus.length,
           'topics': syllabus.map((step) => step.topic).toList(),
-          'theories': theories.map((t) => t.theoryName).toList(),
+          'searchQueries': result.searchQueries,
+          'sources': result.sources,
         });
+        if (result.searchQueries.isNotEmpty || result.sources.isNotEmpty) {
+          _logGrounding(
+              sessionId, 'designer', result.searchQueries, result.sources);
+        }
 
         // ============================================================
-        // 4. 생성된 커리큘럼과 이론으로 상태 업데이트
+        // 4. 생성된 커리큘럼으로 상태 업데이트
         // ============================================================
-
-        // 4-1. (실험 브랜치) 교수이론 미사용 — theories 저장 생략
-
-        // 4-2. syllabus 업데이트
         await ref
             .read(learningStateProvider.notifier)
             .setSyllabus(syllabus);
@@ -1012,7 +986,6 @@ class ChatController extends _$ChatController {
               'topic': step.topic,
               'objective': step.objective,
             }).toList(),
-            'theories': theories.map((t) => t.toJson()).toList(),
           },
         );
 
@@ -1054,6 +1027,29 @@ class ChatController extends _$ChatController {
     ref
         .read(chatSessionsProvider.notifier)
         .updateSession(session.copyWith(messages: updatedMessages));
+  }
+
+  /// Google Search grounding 발동을 콘솔 로그 + 세션 타임라인에 기록한다.
+  ///
+  /// [source]: 발동 주체 ('tutor' | 'freeform' | 'designer').
+  /// 세션 내보내기(JSON)의 stateChanges에 남아 확정 실험설계(260624) §6-4의
+  /// 조절변수 '자료 검색 빈도' 산출에 쓰인다.
+  void _logGrounding(
+    String sessionId,
+    String source,
+    List<String> searchQueries,
+    List<String> sources,
+  ) {
+    _log('grounding.$source', {
+      'turn': _turnCounter,
+      'searchQueries': searchQueries,
+      'sources': sources,
+    });
+    _recordStateChange(sessionId, StateChangeType.groundingUsed, {
+      'source': source,
+      'searchQueries': searchQueries,
+      'sources': sources,
+    });
   }
 
   /// 학습 상태 변화를 타임라인 이벤트로 기록한다.
@@ -1190,57 +1186,45 @@ class ChatController extends _$ChatController {
   }
 
   /// ============================================================
-  /// Helper: Wikidata/RAG 검색 및 캐시 저장
+  /// Helper: 스트리밍 호출용 대화 히스토리 구성 (양 조건 공용)
   /// ============================================================
   ///
-  /// 역할: subject가 확정되면 관련 리소스를 검색하여 캐시에 저장합니다.
+  /// 대화 메모리 정책: 양 조건 동일하게 **세션 전체 히스토리**를 전달한다.
+  /// (30분 단일 세션이라 컨텍스트 부담이 작고, 윈도우 잘림으로 인한
+  ///  선호·맥락 망각을 없앤다. 판정용 에이전트(StepProgress/Feedback)는
+  ///  별도로 [_buildHistory]의 최근 6개 윈도우를 유지한다.)
   ///
-  /// 검색 대상:
-  /// 1. Wikidata: 주제에 대한 개념 정보
-  /// 2. RAG: 교수설계 PDF에서 관련 청크 (theories는 SyllabusDesigner가 추출)
-  ///
-  /// Graceful Degradation:
-  /// - 검색 실패 시에도 앱은 정상 동작 (빈 캐시로 진행)
-  Future<void> _fetchAndCacheResources(String subject) async {
-    _log('resource.load.start', {'subject': subject});
+  /// 처리:
+  /// 1. system 메시지(에러 안내 등) 제외
+  /// 2. 스트리밍용 빈 assistant 메시지([excludeMessageId]) 제외
+  /// 3. 현재 턴의 사용자 메시지 제외 (새 user 메시지로 별도 전송되므로 중복 방지)
+  /// 4. 히스토리가 model 메시지로 시작하지 않도록 선두의 model 메시지 제거
+  ///    (Gemini chat history는 user로 시작해야 안전)
+  List<Message> _recentMessages(
+    String sessionId, {
+    required String? excludeMessageId,
+    required String currentUserText,
+  }) {
+    final session = ref.read(chatSessionsProvider).firstWhere(
+          (s) => s.id == sessionId,
+        );
 
-    // 실험 브랜치: 실시간 Wikidata/RAG 검색 대신
-    // 사전 고정된 로컬 학습 자료(CBBF 가이드)를 로드한다.
-    // 주제가 블록체인으로 고정되므로 자료도 단일 고정본을 사용한다.
-    String guideText = '';
-    try {
-      guideText =
-          await rootBundle.loadString('assets/experiment/cbbf_guide.txt');
-    } catch (e) {
-      _log('resource.load.error', {'error': e.toString()});
+    var recent = session.messages
+        .where((m) =>
+            m.role != MessageRole.system && m.id != excludeMessageId)
+        .toList();
+
+    if (recent.isNotEmpty &&
+        recent.last.role == MessageRole.user &&
+        recent.last.content == currentUserText) {
+      recent.removeLast();
     }
 
-    final learningResources = guideText.isEmpty
-        ? <LearningResource>[]
-        : [
-            LearningResource(
-              title:
-                  'CBBF Official Exam Study Guide (Certified Blockchain Business Foundations)',
-              url: '',
-              summary: guideText,
-              resourceType: 'cbbf_local_guide',
-            ),
-          ];
+    while (recent.isNotEmpty && recent.first.role != MessageRole.user) {
+      recent = recent.sublist(1);
+    }
 
-    final cache = ResourceCache(
-      subject: subject,
-      sourceId: 'cbbf_fixed_v1',
-      learningResources: learningResources,
-      instructionalTheories: const [], // 실험: 교수이론 미사용
-      lastFetchedAt: DateTime.now(),
-    );
-
-    await ref.read(learningStateProvider.notifier).setResourceCache(cache);
-
-    _log('resource.load.complete', {
-      'subject': subject,
-      'guideChars': guideText.length,
-    });
+    return recent;
   }
 
   /// ============================================================

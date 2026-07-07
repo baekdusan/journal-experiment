@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:firebase_ai/firebase_ai.dart';
 import '../models/instructional_design.dart';
+import '../config/agent_prompts.dart';
 import '../config/ai_models.dart';
 
 /// 단계 진행 평가 결과.
@@ -48,27 +49,11 @@ class StepProgressService {
       ),
     );
 
-    final historyBlock =
-        recentHistory.isEmpty ? '없음' : recentHistory.join('\n');
-
-    final prompt = '''너는 학습 진행을 판정하는 평가자다.
-아래 "현재 단계"의 학습목표가 최근 대화에서 충분히 다뤄져
-다음 단계로 넘어가도 되는지 판단하라.
-
-[현재 단계]
-- 주제: ${currentStep.topic}
-- 학습목표: ${currentStep.objective}
-
-[최근 대화]
-$historyBlock
-
-[판정 규칙]
-1) 학습자가 목표 개념을 이해했다는 근거(질문 해소, 올바른 재진술, 적용 등)가 보이면 step_completed=true.
-2) 아직 설명 중이거나 혼란/추가 질문이 남아 있으면 step_completed=false.
-3) 애매하면 보수적으로 false로 두고 confidence를 낮게 매겨라.
-
-[출력 규칙]
-- 반드시 JSON만 출력하라.''';
+    // 프롬프트 원문: lib/config/agent_prompts.dart → AgentPrompts.stepProgress
+    final prompt = AgentPrompts.stepProgress(
+      currentStep: currentStep,
+      recentHistory: recentHistory,
+    );
 
     final response = await model.generateContent([Content.text(prompt)]);
     final raw = response.text;
