@@ -1,88 +1,148 @@
 # Research ADDIE Chatbot
 
-ADDIE 모델 기반 적응형 학습 튜터 시스템
+ADDIE 모델 기반 적응형 학습 튜터 — **피험자 간 2조건(Between-Subjects) 실험 시스템**.
 
-## 실험 운영 모드
+- **처치군(treatment)**: ADDIE 구조화 오케스트레이션 (Intent 분류 · Analyst · Feedback · Syllabus Designer · 단계 추적)
+- **대조군(control)**: 시스템 프롬프트가 전혀 없는 순수(바닐라) 모델
+- **공통 통제**: 학습자 대면 모델(`gemini-3.5-flash`) · Google Search grounding · Gemini 스타일 UI · 대화 메모리(세션 전체) — 두 조건의 유일한 차이는 **오케스트레이션 구조의 유무(독립변인)**
 
-- 현재 앱은 **단일 세션 모드**로 동작합니다.
-- 사이드바와 세션 전환 UI는 제거했고, 한 번에 하나의 학습 흐름만 진행하는 것을 전제로 합니다.
-- 새로 시작하려면 상단 우측의 **초기화 버튼(↻)** 을 누르면 됩니다. 현재 대화와 학습 상태(SharedPreferences 영속분 포함)가 모두 비워집니다.
-- 비스트리밍 응답(니즈 분석·피드백·로드맵 설계) 준비 중에는 채팅창에 **타이핑 인디케이터**가 표시됩니다.
+자료 취득은 로컬 캐시(RAG/Wikidata/자료 박제) 없이 **`Tool.googleSearch()` grounding**으로만 이뤄진다. 모델이 필요할 때 스스로 검색해 그 자료에 근거해 설계·튜터링한다.
 
-## 프로젝트 개요
+---
 
-학습자의 니즈를 분석하고, 교수설계안(Syllabus)을 생성하며, 대화형으로 수업을 진행하는 AI 튜터 챗봇입니다.
+## 실험 조건 접속 엔드포인트 (URL 분기)
 
-### 연구 가설
+조건은 페이지 로드 시 **URL 쿼리 파라미터**로 결정된다 (`lib/config/experiment_config.dart`).
 
-> "어떠한 학습 주제든 ADDIE 프레임워크를 따르면 학습자 맞춤형 대화형 교육이 가능하다"
+| 조건 | URL |
+|------|-----|
+| 처치군 (ADDIE) | `http://<HOST>:<PORT>/?condition=treatment` |
+| 대조군 (순수 모델) | `http://<HOST>:<PORT>/?condition=control` |
 
-### 학습 흐름
+- 미지정/오타 시 기본값은 **treatment**. 대조군은 `control` 외에 `freeform`, `free`도 인식.
+- 조건을 바꾸려면 주소를 바꿔 **새로고침**. 학습 상태가 SharedPreferences에 남으므로, 조건 전환 시 상단 **초기화 버튼(↻)** 또는 시크릿 창 사용을 권장.
+- 매 턴 콘솔에 `[Flow] condition {"value": "control"}` 로그로 현재 조건을 확인할 수 있다.
+- 참가자 배포 시 조건별 링크를 따로 나눠주면 된다 (세션 내보내기 JSON에도 조건이 기록됨).
 
-```
-[1단계: 니즈 분석]    →    [2단계: 교수설계]    →    [3단계: 대화형 수업]
-      ↓                         ↓                         ↓
-  Analyst 모드              Syllabus 생성             Tutor 모드
-  학습자 프로파일 수집       1~5단계 로드맵 자동 생성     스트리밍 튜터링
-                                                      ↓
-                                                 [피드백 반영]
-                                                      ↓
-                                                 Feedback 모드
-                                                 로드맵 재설계
+```bash
+# 로컬 실행 예시
+flutter run -d chrome --web-port 8080
+# → http://localhost:8080/?condition=treatment
+# → http://localhost:8080/?condition=control
 ```
 
 ---
 
-## 핵심 아키텍처: Stateless Micro-Agent Pattern
+## 모델·API 엔드포인트 변경 방법
 
-### 설계 철학
+모든 Gemini 모델명과 Vertex AI location(엔드포인트)은 **`lib/config/ai_models.dart` 한 파일에 중앙화**되어 있다. 모델이나 리전을 바꿀 때는 이 파일의 `ModelSpec(모델명, location)` 쌍만 수정하면 된다.
 
-기존의 "Fat Agent" (LLM이 상태를 보고 모든 것을 판단) 방식에서 **"Thin Micro-Services"** (앱이 상태를 보고 판단, LLM은 생성만) 방식으로 전환하여 레이턴시와 비용을 최적화했습니다.
+```dart
+// lib/config/ai_models.dart
+class AiModels {
+  /// 분류·추출용 (Intent / Analyst / Feedback / StepProgress / Syllabus 2단계 구조화)
+  static const ModelSpec extractor = ModelSpec('gemini-2.5-flash', 'us-central1');
 
-| 항목 | 기존 방식 | 현재 방식 |
-|------|----------|----------|
-| 결정 주체 | LLM이 상태를 보고 판단 | **앱 코드**가 상태를 보고 판단 |
-| LLM 역할 | 사고 + 판단 + 생성 | **생성만** |
-| 상태 관리 | LLM 컨텍스트 내 | **외부 (Riverpod)** |
-| 프롬프트 | 하나의 거대한 프롬프트 | **역할별 작은 프롬프트** |
-| 레이턴시 | ~30초/턴 | **2~5초/턴** |
+  /// 학습자 대면 스트리밍 (처치군 Tutor + 대조군 순수 모델 공용) — 양 조건 동일(통제 변인)
+  static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
 
-### 서비스 구성
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    App Orchestrator                         │
-│                  (ChatController + Riverpod)                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ↓                   ↓                   ↓
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ IntentClassifier│ │ Conversational  │ │ SyllabusDesigner│
-│    Service      │ │  AgentService   │ │    Service      │
-├─────────────────┤ ├─────────────────┤ ├─────────────────┤
-│ - 의도 분류     │ │ - Analyst 모드  │ │ - Syllabus 생성 │
-│ - in/out class │ │ - Tutor 모드    │ │ - 1~5단계 구성  │
-│                 │ │ - Feedback 모드 │ │                 │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-        ↓                   ↓                   ↓
-   gemini-2.5-flash   gemini-2.5-flash   gemini-3.5-flash
-   (분류/추출용)       (튜터 스트리밍)    (교수설계, global)
+  /// 교수설계 1단계 (grounding 검색 조사)
+  static const ModelSpec designer = ModelSpec('gemini-3.5-flash', 'global');
+}
 ```
 
-> 모델명과 location은 `lib/config/ai_models.dart`(`AiModels`)에 (모델, location) 쌍으로 중앙화되어 있다. 교체 시 이 파일만 수정한다.
+### location(엔드포인트) 제약 — `addie-tutor` 프로젝트 기준
+
+| 모델 | 가능한 location | 비고 |
+|------|----------------|------|
+| `gemini-2.5-flash` | `us-central1` | `global`은 라우팅 불안정(404 잦음) |
+| `gemini-3.5-flash` | `global` **전용** | `us-central1`에서 404 |
+| `gemini-2.0-flash` | 사용 불가 | Vertex AI에서 retire됨 (404) |
+| `gemini-3-flash-preview` | 사용 불가 | `us-central1`에서 404 |
+
+주의사항:
+
+- **`tutor`는 양 조건이 공유**하므로 이 값 하나만 바꾸면 두 조건이 함께 바뀐다 (실험 통제 유지).
+- `googleSearch` 도구와 `responseSchema`(JSON 강제)는 **한 호출에서 병용 불가** — 검색이 필요한 에이전트에 JSON 출력을 시키려면 Syllabus Designer처럼 2단계(검색·초안 → JSON 구조화)로 나눠야 한다.
+- Firebase AI Logic이 Vertex AI를 호출하려면 서비스 에이전트 `service-<PROJECT_NUMBER>@gcp-sa-firebasevertexai.iam.gserviceaccount.com`에 `roles/aiplatform.user`가 필요 (없으면 앱에서 403).
 
 ---
 
-## 기술 스택
+## 아키텍처: Stateless Micro-Agent Pattern (처치군)
 
-| 구분 | 기술 |
-|------|------|
-| 프론트엔드 | Flutter Web |
-| 상태 관리 | Riverpod (코드 생성) |
-| AI 백엔드 | Firebase AI (Vertex AI), GCP 프로젝트 `addie-tutor` |
-| 모델 | Gemini 2.5 Flash (분류/튜터), Gemini 3.5 Flash (설계) |
-| 로컬 저장소 | SharedPreferences |
+"LLM이 판단"하는 Fat Agent가 아니라 **"앱이 판단하고 LLM은 생성만"** 하는 구조. 상태는 Riverpod이 들고, `ChatController`가 상태를 보고 에이전트를 라우팅한다.
+
+```mermaid
+flowchart TB
+    O["App Orchestrator<br/>ChatController + Riverpod<br/>(상태 기반 라우팅)"]
+
+    subgraph NOSEARCH["분류·추출·판정 — 검색 ✗"]
+        IC["Intent Classifier<br/>수업 내/외 분류 · extractor"]
+        AN["Analyst<br/>정보 수집 · extractor"]
+        FB["Feedback<br/>피드백/재설계 신호 · extractor"]
+        SP["Step Progress<br/>단계 달성 판정 · extractor"]
+    end
+
+    subgraph SEARCH["콘텐츠 생성 — 검색(grounding) ✓"]
+        SD["Syllabus Designer<br/>1단계 검색 조사 (designer)<br/>→ 2단계 JSON 구조화 (extractor)"]
+        TU["Tutor 스트리밍<br/>GeminiService · tutor<br/>(양 조건 공용, 대조군은 무프롬프트)"]
+    end
+
+    O --> IC
+    O --> AN
+    O --> FB
+    O --> SP
+    O --> SD
+    O --> TU
+```
+
+- **검색(grounding)을 가진 에이전트는 둘뿐**: Syllabus Designer 1단계(기존 커리큘럼·시험 범위 조사)와 학습자 대면 스트리밍(Tutor/대조군 공용). 분류·추출·판정 에이전트는 검색이 불필요하다.
+- 모든 에이전트의 **시스템 프롬프트는 `lib/config/agent_prompts.dart`에 중앙화** — 프롬프트 수정은 이 파일만.
+- 처치군 Tutor는 프롬프트를 `systemInstruction`으로 주입하며(매 턴 상태 반영 재빌드), 대화 이력은 chat history로, 사용자 발화는 user 메시지로 분리 전달된다.
+- **대조군은 `_runFreeformFlow`가 모든 라우팅을 건너뛰고** systemInstruction 없이 사용자 발화를 그대로 모델에 전달한다.
+
+### Grounding 로깅 (조절변수 '자료 검색 빈도')
+
+검색이 발동한 턴은 두 곳에 기록된다:
+
+- 콘솔: `[Flow] grounding.tutor|freeform|designer` — 검색어(`searchQueries`)와 근거 소스(`sources`)
+- 세션 내보내기 JSON: `stateChanges`의 `groundingUsed` 이벤트 (분석 시 검색 빈도 산출용)
+
+grounding은 모델이 필요하다고 판단할 때만 발동하므로 모든 턴에 로그가 찍히지 않는 것이 정상이다.
+
+---
+
+## 실행 방법
+
+### 1. Flutter 웹 앱
+
+```bash
+flutter pub get
+flutter pub run build_runner build --delete-conflicting-outputs  # @riverpod 변경 시
+flutter run -d chrome --web-port 8080
+```
+
+### 2. Firebase 설정 파일이 없을 때 (1회)
+
+```bash
+npm install -g firebase-tools && firebase login
+dart pub global activate flutterfire_cli
+flutterfire configure --project=addie-tutor --platforms=web
+```
+
+`lib/firebase_options.dart`에 API 키가 포함되므로 저장소에 커밋하지 않는다.
+
+> 별도 백엔드 서버는 없다. 이전의 RAG 서버(`scripts/rag/`)와 Wikidata 프록시는 grounding 전환으로 **폐기**되었다 (스크립트는 참고용으로만 남아 있음).
+
+---
+
+## 실험 운영
+
+- **단일 세션 모드**: 사이드바 없음, 한 번에 하나의 학습 흐름.
+- **초기화(↻)**: 대화 + 학습 상태(SharedPreferences 포함) 전체 리셋. 참가자 교체 시 필수.
+- **내보내기(⬇)**: 세션 메시지 + 상태 변화 타임라인(`groundingUsed` 포함)을 JSON으로 다운로드.
+- **대화 메모리**: 양 조건 동일하게 **세션 전체 히스토리**를 스트리밍 호출에 전달. 판정 에이전트(StepProgress/Feedback)만 최근 6개 윈도우 사용.
+- **UI**: Google Gemini 웹 앱 스타일(중앙 입력 필 + 글로우, 회청색 사용자 버블, 라이트 블루 전송 버튼). 두 조건의 UI는 완전히 동일하다. 로드맵 UI는 `ExperimentConfig.showLearningRoadmap=false`로 비노출 (내부 단계 추적은 계속 동작).
 
 ---
 
@@ -90,201 +150,62 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템
 
 ```
 lib/
-├── main.dart                      # 앱 진입점
-├── firebase_options.dart          # Firebase 설정 (addie-tutor)
+├── main.dart                      # 앱 진입점 + Gemini 스타일 테마
+├── firebase_options.dart          # Firebase 설정 (addie-tutor, gitignore)
 │
 ├── config/
-│   ├── ai_models.dart             # ⭐ 모델명·location 중앙 설정 (AiModels)
-│   └── experiment_config.dart     # 실험 조건 토글 (로드맵 가시성 등)
+│   ├── ai_models.dart             # ⭐ 모델·location(엔드포인트) 중앙 설정
+│   ├── agent_prompts.dart         # ⭐ 전체 에이전트 시스템 프롬프트 중앙화
+│   └── experiment_config.dart     # ⭐ 실험 조건 URL 분기 + 로드맵 가시성
 │
 ├── models/
-│   ├── message.dart               # 채팅 메시지 모델
-│   ├── chat_session.dart          # 채팅 세션 모델
-│   ├── learner_profile.dart       # 학습자 프로파일 (subject·goal·level 필수, tone 선택)
-│   ├── instructional_design.dart  # 교수설계 모델 (Step, Syllabus)
-│   └── learning_state.dart        # 통합 학습 상태
+│   ├── message.dart / chat_session.dart
+│   ├── learner_profile.dart       # subject·goal·level(필수), tone(선택)
+│   ├── instructional_design.dart  # Step, Syllabus
+│   ├── learning_state.dart        # 통합 학습 상태
+│   └── state_change_event.dart    # 상태 변화 타임라인 (groundingUsed 포함)
 │
 ├── providers/
-│   ├── chat_provider.dart         # 단일 세션 채팅 + 오케스트레이션 로직
-│   └── learning_state_provider.dart # 학습 상태 관리 + 영속화
+│   ├── chat_provider.dart         # ⭐ 오케스트레이션 + 조건 분기 + grounding 로깅
+│   └── learning_state_provider.dart
 │
 ├── services/
-│   ├── gemini_service.dart        # 스트리밍 응답 (Tutor용)
-│   ├── intent_classifier_service.dart  # 의도 분류
-│   ├── conversational_agent_service.dart # Analyst/Tutor/Feedback
-│   ├── syllabus_designer_service.dart   # 커리큘럼 생성
-│   ├── step_progress_service.dart  # 단계 진행(이해도) 평가
-│   ├── wikidata_client.dart       # 주제 개념 검색
-│   ├── rag_service.dart           # 교수설계 RAG 검색
-│   └── session_export_service.dart # 세션 JSON 내보내기
+│   ├── gemini_service.dart        # 학습자 대면 스트리밍 (grounding + systemInstruction, 양 조건 공용)
+│   ├── intent_classifier_service.dart
+│   ├── conversational_agent_service.dart # Analyst / Feedback / Tutor systemInstruction
+│   ├── syllabus_designer_service.dart    # 2단계: 검색 조사 → JSON 구조화
+│   ├── step_progress_service.dart
+│   └── session_export_service.dart
 │
-├── screens/
-│   └── chat_screen.dart           # 단일 세션 메인 화면
-│
-└── widgets/
-    ├── chat_view.dart             # 채팅 뷰
-    ├── chat_input.dart            # 입력 위젯
-    └── message_bubble.dart        # 메시지 버블
+├── screens/chat_screen.dart
+└── widgets/                       # chat_view, chat_input, message_bubble, typing_indicator
 ```
 
 ---
 
-## 빠른 재실행
+## 상태 흐름
 
-아래 순서대로 실행하면 됩니다.
+```mermaid
+flowchart TD
+    U["사용자 발화"] --> SM["ChatController.sendMessage()"]
 
-### 1. Flutter 웹 앱 실행
+    SM -->|"condition=control"| FF["FreeformFlow<br/>순수 모델 + 검색 (라우팅 없음)"]
+    SM -->|"treatment"| C1{"설계 중?"}
 
-```bash
-cd /Users/dusanbaek/research-addie-chatbot
-flutter pub get
-flutter pub run build_runner build --delete-conflicting-outputs
-flutter run -d chrome
+    C1 -->|"예"| WAIT["대기"]
+    C1 -->|"아니오"| C2{"수업 완료?"}
+    C2 -->|"예"| ANA["Analyst<br/>새 학습 시작"]
+    C2 -->|"아니오"| C3{"프로파일 완성?"}
+
+    C3 -->|"아니오"| ANB["Analyst<br/>subject·goal·level 수집"]
+    ANB -->|"완성 시"| DES["Syllabus Designer<br/>검색 조사 → JSON 구조화"]
+    DES --> AUTO["자동 수업 시작"]
+
+    C3 -->|"예"| INT{"Intent 분류"}
+    INT -->|"in_class"| TUT["Tutor 스트리밍"]
+    TUT --> STEP["StepProgress 판정<br/>단계 전진 / 수업 완료"]
+    INT -->|"out_class"| FBK["Feedback<br/>프로필 갱신 · 명시적 요청 시 재설계"]
 ```
-
-### 2. Firebase 설정 파일이 없을 때
-
-현재 앱은 `lib/firebase_options.dart`가 있어야 실행됩니다.
-이 파일이 없다면 아래를 먼저 1회 실행해야 합니다.
-
-```bash
-cd /Users/dusanbaek/research-addie-chatbot
-flutterfire configure --project=addie-tutor --platforms=web
-```
-
-### 3. RAG 백엔드 실행
-
-```bash
-cd /Users/dusanbaek/research-addie-chatbot
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r scripts/rag/server_requirements.txt
-python3 scripts/rag/rag_server.py
-```
-
-백엔드는 `http://0.0.0.0:5001`에서 뜹니다.
-
-RAG 서버는 Vertex AI 임베딩(`text-embedding-004`)을 호출하며, 기본 프로젝트는 `addie-tutor`입니다
-(`scripts/rag/rag_server.py`의 `VERTEX_PROJECT`). 다른 프로젝트를 쓰려면 환경변수로 덮어쓸 수 있습니다.
-
-```bash
-VERTEX_PROJECT=다른-프로젝트-id python3 scripts/rag/rag_server.py
-```
-
-### 4. Vertex AI 인증이 안 되어 있을 때
-
-RAG 서버나 PDF 인제스트가 Vertex AI 임베딩을 호출하므로,
-로컬 머신에서 아직 인증하지 않았다면 1회 실행합니다.
-
-```bash
-gcloud auth application-default login
-```
-
-### 5. PDF RAG 인덱스를 다시 만들 때만
-
-```bash
-cd /Users/dusanbaek/research-addie-chatbot
-source .venv/bin/activate
-pip install -r scripts/rag/requirements.txt
-python3 scripts/rag/ingest_pdf.py \
-  --input "instructionalDesignSource.pdf" \
-  --sqlite "data/rag/resource_cache.sqlite" \
-  --faiss "data/rag/resource_index.faiss"
-```
-
-### 6. 백엔드 주소 확인
-
-앱은 현재 아래 파일에서 RAG/Wikidata 프록시 주소를 직접 사용합니다.
-
-- `lib/services/rag_service.dart`
-- `lib/services/wikidata_client.dart`
-
-기본값은 `http://localhost:5001`입니다.
-웹 앱과 백엔드를 같은 PC에서 실행하면 그대로 쓰면 되고,
-다른 장비에서 웹 앱을 열어야 하면 현재 PC의 IP로 바꿔야 합니다.
-
-## Firebase 설정
-
-1. Firebase 프로젝트 생성
-2. Vertex AI in Firebase API 활성화
-3. Web App 등록
-
-```bash
-# Firebase CLI 설치
-npm install -g firebase-tools
-firebase login
-
-# FlutterFire CLI 설치
-dart pub global activate flutterfire_cli
-export PATH="$PATH":"$HOME/.pub-cache/bin"
-
-# 설정 생성
-flutterfire configure --project=addie-tutor --platforms=web
-```
-
-### 보안 주의사항
-
-- `lib/firebase_options.dart`에는 API 키가 포함됩니다
-- 이 파일은 `.gitignore`에 포함되어야 합니다
-- 이 저장소에는 `lib/firebase_options.dart`가 기본 포함되어 있지 않을 수 있으므로 `flutterfire configure`로 다시 생성해야 합니다
-
----
-
-## 상태 흐름 (State Flow)
-
-```
-사용자 발화
-    ↓
-[ChatController.sendMessage()]
-    ↓
-상태 체크 (LearningState)
-    ↓
-┌─────────────────────────────────────────────────────────────┐
-│ 분기 조건 (앱 로직이 결정)                                   │
-├─────────────────────────────────────────────────────────────┤
-│ 1. 설계 중 (isDesigning=true)     → 대기                    │
-│ 2. 수업 완료 (isCourseCompleted)  → Analyst (새 학습 시작)  │
-│ 3. 프로파일 미완성                → Analyst (정보 수집)      │
-│ 4. 교수설계 미완성                → Syllabus 생성 트리거    │
-│ 5. 수업 가능 상태                 → Intent 분류             │
-│    ├─ in_class  → Tutor 모드 (스트리밍)                     │
-│    └─ out_class → Feedback 모드                             │
-└─────────────────────────────────────────────────────────────┘
-    ↓
-[각 서비스 호출 → JSON 응답 → State 업데이트]
-    ↓
-사용자에게 응답 출력
-```
-
----
-
-## 핵심 설계 원칙
-
-### 1. LLM as a Function
-LLM을 순수 함수처럼 취급합니다. 입력(프롬프트)을 받아 출력(JSON)을 반환하고, 상태 변경은 앱 코드에서 수행합니다.
-
-### 2. External State Management
-상태를 LLM 컨텍스트가 아닌 Riverpod에서 관리합니다. 각 LLM 호출에 필요한 정보만 프롬프트에 주입합니다.
-
-### 3. Structured Output
-모든 서비스는 JSON Schema를 사용하여 구조화된 출력을 반환합니다. 이를 통해 안정적인 파싱과 상태 업데이트가 가능합니다.
-
-### 4. Application-Driven Orchestration
-어떤 서비스를 호출할지는 앱 코드가 상태를 보고 결정합니다. LLM에게 판단을 위임하지 않습니다.
-
----
-
-## 학술적 배경
-
-### 관련 개념
-
-- **Compound AI Systems**: 여러 AI 컴포넌트를 조합한 시스템 (Berkeley)
-- **Multi-Agent Architecture**: 역할별로 분리된 에이전트 구조
-- **Prompt Factoring**: 거대 프롬프트를 작은 단위로 분리
-
-### 논문 프레이밍
-
-> "본 연구의 시스템은 고정된 선형적 ADDIE 모델이 아니라, **State Hub를 중심으로 각 단계가 유기적으로 연결된 실시간 적응형 교수설계 엔진**을 지향한다."
 
 ---
 

@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ADDIE 모델 기반 적응형 학습 튜터 시스템. Flutter Web + Firebase AI (Vertex AI) + Riverpod 상태 관리를 사용합니다.
 
+**피험자 간 2조건 실험 시스템**: URL 쿼리 `?condition=treatment|control`로 분기 (`experiment_config.dart`).
+- 처치군(treatment): 아래의 구조화 오케스트레이션 전체
+- 대조군(control): 시스템 프롬프트 없는 순수 모델 (`_runFreeformFlow`, 라우팅 전부 건너뜀)
+- 자료 취득은 로컬 캐시 없이 **`Tool.googleSearch()` grounding**만 사용. 검색을 가진 에이전트는 Syllabus Designer 1단계와 학습자 대면 스트리밍(GeminiService) 둘뿐.
+- 모든 에이전트 프롬프트는 `lib/config/agent_prompts.dart`에 중앙화.
+
 ### Core Architecture: Stateless Micro-Agent Pattern
 
 이 프로젝트는 **"LLM이 판단"하는 Fat Agent 방식이 아닌, "앱이 판단하고 LLM은 생성만"하는 Thin Micro-Services 패턴**을 사용합니다.
@@ -15,8 +21,9 @@ App Orchestrator (ChatController)
     ↓ 상태 기반 라우팅
 ┌───────────┬──────────────┬─────────────┬────────────┐
 │ Intent    │ Conversational│ Syllabus   │ Step      │
-│ Classifier│ AgentService │ Designer   │ Mapper    │
-│ (분류만)  │ (3가지 모드)  │ (설계)     │ (매핑)    │
+│ Classifier│ AgentService │ Designer   │ Progress  │
+│ (분류만)  │ (Analyst/    │ (검색 조사→ │ (단계 판정)│
+│           │  Feedback)   │  JSON 구조화)│           │
 └───────────┴──────────────┴─────────────┴────────────┘
 ```
 
@@ -66,21 +73,27 @@ lib/
 │   ├── learning_state_provider.dart # 학습 상태 관리 + 영속화
 │   └── learning_state_provider.g.dart # (generated)
 │
+├── config/
+│   ├── ai_models.dart               # ⭐ 모델·location 중앙 설정 (ModelSpec)
+│   ├── agent_prompts.dart           # ⭐ 전체 에이전트 프롬프트 중앙화
+│   └── experiment_config.dart       # 실험 조건 URL 분기 + 로드맵 가시성
+│
 ├── services/                        # ⭐ Micro-Agent Services
-│   ├── gemini_service.dart          # 스트리밍 응답 (Tutor용)
+│   ├── gemini_service.dart          # 학습자 대면 스트리밍 (grounding + systemInstruction, 양 조건 공용)
 │   ├── intent_classifier_service.dart  # 의도 분류 (in/out class)
-│   ├── conversational_agent_service.dart # Analyst/Tutor/Feedback 모드
-│   ├── syllabus_designer_service.dart   # 커리큘럼 생성
-│   └── step_mapper_service.dart     # 재설계 시 단계 매핑
+│   ├── conversational_agent_service.dart # Analyst/Feedback + Tutor systemInstruction
+│   ├── syllabus_designer_service.dart   # 커리큘럼 생성 (2단계: 검색 조사 → JSON 구조화)
+│   ├── step_progress_service.dart   # 단계 진행 판정
+│   └── session_export_service.dart  # 세션 JSON 내보내기
 │
 ├── screens/
-│   └── chat_screen.dart             # 메인 화면 (반응형: 900px 기준)
+│   └── chat_screen.dart             # 단일 세션 메인 화면
 │
-└── widgets/
-    ├── chat_view.dart               # 채팅 메시지 표시
-    ├── chat_input.dart              # 입력 위젯
+└── widgets/                         # Gemini 스타일 UI
+    ├── chat_view.dart               # 채팅 뷰 (빈 화면 글로우 + 중앙 입력)
+    ├── chat_input.dart              # 필 입력 위젯
     ├── message_bubble.dart          # 메시지 버블
-    └── sidebar.dart                 # 세션 사이드바
+    └── typing_indicator.dart        # 타이핑 인디케이터
 ```
 
 ---
@@ -90,31 +103,36 @@ lib/
 ### 1. 메시지 처리 흐름 (ChatController.sendMessage)
 
 ```dart
-// 1. 상태 체크
+// 0. 실험 조건 분기
+if (ExperimentConfig.isControl) → _runFreeformFlow()  // 순수 모델 + 검색
+
+// 1. 상태 체크 (treatment)
 if (isDesigning) return;  // 설계 중이면 대기
 if (isCourseCompleted) → _runAnalystFlow()  // 완료 후 새 학습
 
 // 2. 프로파일/설계 미완성 시
-if (!isMandatoryFilled || !designFilled) → _runAnalystFlow()
+if (!isLearnerProfileFilled || !isDesignFilled) → _runAnalystFlow()
 
 // 3. 수업 가능 상태
 intent = await intentClassifier.classify(text)
-if (intent == inClass) → _runTutorFlow()   // 스트리밍
+if (intent == inClass) → _runTutorFlow()   // 스트리밍 → StepProgress 판정
 else → _runFeedbackFlow()                   // 피드백 처리
 ```
 
 ### 2. 서비스별 역할
 
-| Service | 역할 | 모델 | 출력 형식 |
-|---------|------|------|----------|
-| `IntentClassifierService` | 수업 내/외 분류 | `AiModels.extractor` (gemini-2.5-flash) | `{intent}` |
-| `ConversationalAgentService.runAnalyst` | 정보 수집 | `AiModels.extractor` (gemini-2.5-flash) | `{extracted_info, response}` |
-| `ConversationalAgentService.runTutor` | 튜터링 (비스트리밍) | `AiModels.extractor` (gemini-2.5-flash) | `{response}` |
-| `ConversationalAgentService.buildTutorStreamingPrompt` | 튜터링 프롬프트 생성 | - | String |
-| `ConversationalAgentService.runFeedback` | 피드백 처리 | `AiModels.extractor` (gemini-2.5-flash) | `{profile_update, response, needs_redesign}` |
-| `SyllabusDesignerService` | 커리큘럼 생성 | `AiModels.designer` (gemini-3-flash-preview) | `{syllabus[]}` |
-| `StepProgressService` | 단계 진행 평가 | `AiModels.extractor` (gemini-2.5-flash) | `{...}` |
-| `GeminiService` | 스트리밍 응답 | `AiModels.tutor` (gemini-2.5-flash) | Stream<String> |
+| Service | 역할 | 모델 | 검색 | 출력 형식 |
+|---------|------|------|------|----------|
+| `IntentClassifierService` | 수업 내/외 분류 | `AiModels.extractor` | X | `{intent}` |
+| `ConversationalAgentService.runAnalyst` | 정보 수집 | `AiModels.extractor` | X | `{extracted_info, explicit_fields, response}` |
+| `ConversationalAgentService.runFeedback` | 피드백 처리 | `AiModels.extractor` | X | `{profile_update, response, needs_redesign, ...}` |
+| `ConversationalAgentService.buildTutorSystemInstruction` | 튜터 시스템 프롬프트 생성 (매 턴 재빌드) | - | - | String |
+| `SyllabusDesignerService` | 커리큘럼 생성 (1단계 검색 조사 → 2단계 JSON 구조화) | `AiModels.designer` → `extractor` | 1단계만 O | `{syllabus, searchQueries, sources}` |
+| `StepProgressService` | 단계 진행 판정 | `AiModels.extractor` | X | `{step_completed, confidence}` |
+| `GeminiService` | 학습자 대면 스트리밍 (양 조건 공용, 대조군은 systemInstruction 없음) | `AiModels.tutor` | O | Stream<String> + onGrounding 콜백 |
+
+> `googleSearch` 도구와 `responseSchema`(JSON 강제)는 한 호출에서 병용 불가 →
+> 검색이 필요한 JSON 에이전트는 SyllabusDesigner처럼 2단계로 분리한다.
 
 ---
 
@@ -193,23 +211,22 @@ isReady = isMandatoryFilled && designFilled
 
 **GCP/Firebase 프로젝트**: `addie-tutor` (개인 결제 계정, `lib/firebase_options.dart`).
 
-모델명과 location은 `lib/config/ai_models.dart`에 **중앙화**되어 있다. 모델을 갈아끼울 때는 이 파일만 수정한다.
+모델명과 location(엔드포인트)은 `lib/config/ai_models.dart`에 `ModelSpec(모델, location)` 쌍으로 **중앙화**되어 있다. 모델·리전을 갈아끼울 때는 이 파일만 수정한다.
 
 ```dart
 // lib/config/ai_models.dart
 class AiModels {
-  static const String location  = 'us-central1';        // addie-tutor는 'global' 미라우팅 → 리전 고정
-  static const String extractor = 'gemini-2.5-flash';   // 분류/추출 (구 gemini-2.0-flash, retired)
-  static const String tutor     = 'gemini-2.5-flash';   // 튜터 스트리밍
-  static const String designer  = 'gemini-3-flash-preview'; // 교수설계
+  static const ModelSpec extractor = ModelSpec('gemini-2.5-flash', 'us-central1'); // 분류/추출
+  static const ModelSpec tutor     = ModelSpec('gemini-3.5-flash', 'global');      // 학습자 대면 (양 조건 공용!)
+  static const ModelSpec designer  = ModelSpec('gemini-3.5-flash', 'global');      // 교수설계 1단계
 }
 ```
 
 각 서비스는 이 상수를 참조한다:
 
 ```dart
-final model = FirebaseAI.vertexAI(location: AiModels.location).generativeModel(
-  model: AiModels.extractor,
+final model = FirebaseAI.vertexAI(location: AiModels.extractor.location).generativeModel(
+  model: AiModels.extractor.model,
   generationConfig: GenerationConfig(
     responseMimeType: 'application/json',
     responseSchema: schema,
@@ -218,7 +235,12 @@ final model = FirebaseAI.vertexAI(location: AiModels.location).generativeModel(
 );
 ```
 
-> 주의: `gemini-2.0-flash`는 Vertex AI에서 retire되어 호출 시 404가 난다. `global` 엔드포인트도 이 프로젝트에서는 라우팅되지 않으므로 `us-central1`을 사용한다.
+> location 제약 (addie-tutor 프로젝트):
+> - `gemini-2.5-flash` → `us-central1` (global은 라우팅 불안정/404)
+> - `gemini-3.5-flash` → `global` 전용 (us-central1에서 404)
+> - `gemini-2.0-flash`(retired), `gemini-3-flash-preview` → 사용 불가 (404)
+>
+> `tutor`는 처치군·대조군이 공유하는 통제 변인이므로 이 값 하나로 양 조건이 함께 바뀐다.
 > Firebase AI Logic이 Vertex AI를 호출하려면 서비스 에이전트
 > `service-<PROJECT_NUMBER>@gcp-sa-firebasevertexai.iam.gserviceaccount.com`에
 > `roles/aiplatform.user` 권한이 필요하다 (없으면 앱에서 403).
