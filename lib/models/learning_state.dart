@@ -1,11 +1,14 @@
 import 'learner_profile.dart';
 import 'instructional_design.dart';
-import 'resource_cache.dart';
 
+/// 통합 학습 상태.
+///
+/// 자료(레퍼런스) 캐시는 두지 않는다 — 확정 실험설계(260624)에 따라
+/// 자료 취득은 로컬 캐시 없이 `Tool.googleSearch()` grounding으로만 이루어지며,
+/// Designer/Tutor가 호출 시점에 직접 검색한다.
 class LearningState {
   final LearnerProfile learnerProfile;
   final InstructionalDesign instructionalDesign;
-  final ResourceCache resourceCache;
   final bool isDesigning;
   final bool showDesignReady;
   final bool isCourseCompleted;
@@ -17,14 +20,12 @@ class LearningState {
   LearningState({
     required this.learnerProfile,
     required this.instructionalDesign,
-    ResourceCache? resourceCache,
     this.isDesigning = false,
     this.showDesignReady = false,
     this.isCourseCompleted = false,
     this.currentStepIndex = 0,
     DateTime? updatedAt,
-  })  : resourceCache = resourceCache ?? ResourceCache.empty(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : updatedAt = updatedAt ?? DateTime.now();
 
   /// 현재 단계 객체. 인덱스가 범위를 벗어나면 null.
   Step? get currentStep => (currentStepIndex >= 0 &&
@@ -46,7 +47,6 @@ class LearningState {
   LearningState copyWith({
     LearnerProfile? learnerProfile,
     InstructionalDesign? instructionalDesign,
-    ResourceCache? resourceCache,
     bool? isDesigning,
     bool? showDesignReady,
     bool? isCourseCompleted,
@@ -56,7 +56,6 @@ class LearningState {
     return LearningState(
       learnerProfile: learnerProfile ?? this.learnerProfile,
       instructionalDesign: instructionalDesign ?? this.instructionalDesign,
-      resourceCache: resourceCache ?? this.resourceCache,
       isDesigning: isDesigning ?? this.isDesigning,
       showDesignReady: showDesignReady ?? this.showDesignReady,
       isCourseCompleted: isCourseCompleted ?? this.isCourseCompleted,
@@ -69,7 +68,6 @@ class LearningState {
     return {
       'learnerProfile': learnerProfile.toJson(),
       'instructionalDesign': instructionalDesign.toJson(),
-      'resourceCache': resourceCache.toJson(),
       'isDesigning': isDesigning,
       'showDesignReady': showDesignReady,
       'isCourseCompleted': isCourseCompleted,
@@ -85,9 +83,7 @@ class LearningState {
       instructionalDesign: InstructionalDesign.fromJson(
         json['instructionalDesign'] as Map<String, dynamic>,
       ),
-      resourceCache: json['resourceCache'] != null
-          ? ResourceCache.fromJson(json['resourceCache'] as Map<String, dynamic>)
-          : ResourceCache.empty(),
+      // 구버전 prefs에 남아 있는 'resourceCache' 키는 무시한다.
       isDesigning: json['isDesigning'] as bool? ?? false,
       showDesignReady: json['showDesignReady'] as bool? ?? false,
       isCourseCompleted: json['isCourseCompleted'] as bool? ?? false,

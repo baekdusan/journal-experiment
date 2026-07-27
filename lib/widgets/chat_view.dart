@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../config/experiment_config.dart';
 import '../models/chat_session.dart';
 import '../providers/chat_provider.dart';
@@ -8,7 +7,6 @@ import '../providers/learning_state_provider.dart';
 import '../models/instructional_design.dart' as id;
 import '../models/learner_profile.dart';
 import '../models/learning_state.dart';
-import '../models/resource_cache.dart';
 import 'message_bubble.dart';
 import 'chat_input.dart';
 import 'typing_indicator.dart';
@@ -90,10 +88,14 @@ class _ChatViewState extends ConsumerState<ChatView> {
 
     return Column(
       children: [
-        if (ExperimentConfig.showLearningRoadmap &&
-            learningState.instructionalDesign.syllabus.isNotEmpty)
-          _buildSyllabusHeader(context, learningState),
-        _buildStatusBanner(context, learningState),
+        if (ExperimentConfig.showLearningRoadmap) ...[
+          if (learningState.instructionalDesign.syllabus.isNotEmpty)
+            _buildSyllabusHeader(context, learningState),
+          // 상태 배너("로드맵 생성 중/준비 완료")도 로드맵의 존재를 드러내므로
+          // 같은 플래그로 묶는다. 설계가 도는 동안에는 타이핑 인디케이터가
+          // 대신 떠 있어(양 조건 동일) 피드백이 사라지지는 않는다.
+          _buildStatusBanner(context, learningState),
+        ],
         Expanded(
           child: isEmpty
               ? _buildWelcome(context)
@@ -250,7 +252,6 @@ class _ChatViewState extends ConsumerState<ChatView> {
   void _showSyllabusModal(BuildContext context, LearningState learningState) {
     final design = learningState.instructionalDesign;
     final profile = learningState.learnerProfile;
-    final resourceCache = learningState.resourceCache;
 
     showModalBottomSheet(
       context: context,
@@ -320,25 +321,8 @@ class _ChatViewState extends ConsumerState<ChatView> {
                           ),
                         );
                       }),
-                      // 적용된 교수설계론 섹션
-                      if (resourceCache.instructionalTheories.isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        _buildTheorySectionWithSources(
-                          theme,
-                          resourceCache.instructionalTheories,
-                        ),
-                      ],
-                      // 참고 자료 섹션
-                      if (resourceCache.learningResources.isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        _buildSectionHeader(theme, Icons.link, '참고 자료'),
-                        const SizedBox(height: 12),
-                        ...resourceCache.learningResources.map((resource) =>
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _buildResourceCard(theme, resource),
-                            )),
-                      ],
+                      // 자료는 로컬에 캐시하지 않고 Google Search grounding으로
+                      // 호출 시점에 취득하므로, 여기에 별도의 자료 섹션을 두지 않는다.
                     ],
                   ),
                 ),
@@ -368,372 +352,6 @@ class _ChatViewState extends ConsumerState<ChatView> {
         ),
       ],
     );
-  }
-
-  Widget _buildTheoryCard(ThemeData theme, InstructionalTheory theory) {
-    final cs = theme.colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.surface,
-        border: Border.all(color: cs.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ExpansionTile(
-        shape: const Border(),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        leading: Icon(
-          Icons.menu_book_outlined,
-          color: cs.onSurface,
-          size: 20,
-        ),
-        title: Text(
-          theory.theoryName,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: cs.onSurface,
-          ),
-        ),
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  theory.description,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                if (theory.applicability.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: cs.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.lightbulb_outline,
-                          size: 14,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            theory.applicability,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: cs.onSurfaceVariant,
-                              height: 1.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTheorySectionWithSources(
-    ThemeData theme,
-    List<InstructionalTheory> theories,
-  ) {
-    // 모든 rawChunks 수집 (중복 제거)
-    final allChunks = <SourceChunk>[];
-    for (final theory in theories) {
-      if (theory.rawChunks != null) {
-        allChunks.addAll(theory.rawChunks!);
-      }
-    }
-
-    // 중복 제거 (같은 페이지, 같은 내용)
-    final uniqueChunks = <SourceChunk>[];
-    for (final chunk in allChunks) {
-      if (!uniqueChunks.any((c) =>
-          c.pageNumber == chunk.pageNumber && c.content == chunk.content)) {
-        uniqueChunks.add(chunk);
-      }
-    }
-
-    final cs = theme.colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 헤더
-        Row(
-          children: [
-            Icon(Icons.psychology_outlined, size: 18, color: cs.onSurface),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '적용된 교수설계론',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // theory 카드들 (원문 보기 제외)
-        ...theories.map((theory) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildTheoryCard(theme, theory),
-            )),
-        // 통합 원문 보기 ExpansionTile
-        if (uniqueChunks.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: cs.surface,
-              border: Border.all(color: cs.outlineVariant),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ExpansionTile(
-              shape: const Border(),
-              tilePadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              leading: Icon(
-                Icons.description_outlined,
-                size: 18,
-                color: cs.onSurfaceVariant,
-              ),
-              title: Text(
-                '원문 보기',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              subtitle: Text(
-                'RAG 검색 결과 ${uniqueChunks.length}개',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                ),
-              ),
-              children: uniqueChunks
-                  .map((chunk) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildSourceChunkCard(theme, chunk),
-                      ))
-                  .toList(),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildSourceChunkCard(ThemeData theme, SourceChunk chunk) {
-    final cs = theme.colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: cs.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.article_outlined,
-                size: 14,
-                color: cs.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'p.${chunk.pageNumber}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (chunk.sectionHeader != null) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    chunk.sectionHeader!,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      fontStyle: FontStyle.italic,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            chunk.content,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: cs.onSurface,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildResourceCard(ThemeData theme, LearningResource resource) {
-    final cs = theme.colorScheme;
-    final iconData = _getResourceIcon(resource.resourceType);
-    final typeLabel = _getResourceTypeLabel(resource.resourceType);
-    final hasUrl = resource.url.isNotEmpty;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.surface,
-        border: Border.all(color: cs.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ListTile(
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                iconData,
-                color: cs.onSurface,
-                size: 20,
-              ),
-            ),
-            title: Text(
-              resource.title,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-                color: cs.onSurface,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: cs.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    typeLabel,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            trailing: hasUrl
-                ? IconButton(
-                    icon: Icon(
-                      Icons.open_in_new,
-                      size: 20,
-                      color: cs.onSurface,
-                    ),
-                    tooltip: '원문 보기',
-                    onPressed: () => _launchUrl(resource.url),
-                  )
-                : null,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    resource.summary,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: cs.onSurfaceVariant,
-                      height: 1.5,
-                    ),
-                  ),
-                  if (hasUrl) ...[
-                    const SizedBox(height: 8),
-                    InkWell(
-                      onTap: () => _launchUrl(resource.url),
-                      child: Text(
-                        resource.url,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: cs.onSurface,
-                          decoration: TextDecoration.underline,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  IconData _getResourceIcon(String resourceType) {
-    switch (resourceType) {
-      case 'wikidata_concept':
-        return Icons.public;
-      case 'openstax_chapter':
-        return Icons.book;
-      case 'openstax_exercise':
-        return Icons.quiz;
-      default:
-        return Icons.article;
-    }
-  }
-
-  String _getResourceTypeLabel(String resourceType) {
-    switch (resourceType) {
-      case 'wikidata_concept':
-        return 'Wikidata';
-      case 'openstax_chapter':
-        return 'OpenStax 교재';
-      case 'openstax_exercise':
-        return 'OpenStax 연습문제';
-      default:
-        return '참고자료';
-    }
   }
 
   Widget _buildPlanSummarySection(

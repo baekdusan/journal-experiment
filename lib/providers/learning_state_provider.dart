@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/learning_state.dart';
 import '../models/learner_profile.dart';
 import '../models/instructional_design.dart';
-import '../models/resource_cache.dart';
 
 part 'learning_state_provider.g.dart';
 
@@ -51,16 +50,9 @@ class LearningStateNotifier extends _$LearningStateNotifier {
         ? InstructionalDesign.empty()
         : current.instructionalDesign;
 
-    // subject가 변경되면 resourceCache도 리셋
-    final resetCache = subjectChanged;
-    final updatedCache = resetCache
-        ? ResourceCache.empty()
-        : current.resourceCache;
-
     state = current.copyWith(
       learnerProfile: updatedProfile,
       instructionalDesign: updatedDesign,
-      resourceCache: updatedCache,
       isDesigning: resetDesign ? false : current.isDesigning,
       showDesignReady: resetDesign ? false : current.showDesignReady,
       isCourseCompleted: resetDesign ? false : current.isCourseCompleted,
@@ -124,14 +116,6 @@ class LearningStateNotifier extends _$LearningStateNotifier {
 
   Future<void> resetCourseCompleted() async {
     state = state.copyWith(isCourseCompleted: false, updatedAt: DateTime.now());
-    await _saveToPrefs();
-  }
-
-  Future<void> setResourceCache(ResourceCache cache) async {
-    state = state.copyWith(
-      resourceCache: cache,
-      updatedAt: DateTime.now(),
-    );
     await _saveToPrefs();
   }
 

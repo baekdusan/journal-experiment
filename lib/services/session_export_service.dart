@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:html' as html;
-import 'dart:math';
 import 'package:intl/intl.dart';
+import '../config/experiment_config.dart';
 import '../models/chat_session.dart';
 import '../models/learning_state.dart';
 import '../models/message.dart';
@@ -9,11 +9,16 @@ import '../models/state_change_event.dart';
 
 /// 채팅 세션을 JSON 파일로 내보내는 서비스
 ///
-/// Version 2.0: 간소화된 타임라인 형식
+/// Version 2.1: 실험 분석에 필요한 항목까지 포함한 타임라인 형식
 /// - 학생 메시지 (student)
 /// - 튜터 메시지 (tutor)
 /// - 프로필 업데이트 (profile): subject, goal, level, tonePreference 변경
-/// - 학습 플랜 (syllabus): 커리큘럼 + 교수설계 이론
+/// - 학습 플랜 (syllabus): 커리큘럼
+/// - 검색 발동 (grounding): Google Search grounding 검색어·근거 소스
+///
+/// 최상위에는 실험 조건(`experiment.condition`)을 함께 기록한다.
+/// 대조군은 상태 변화가 없어 타임라인이 메시지+grounding만으로 구성되므로,
+/// 파일만 보고 조건을 역추정할 수 없기 때문이다.
 ///
 /// Tutor agent가 참조하는 학습 상태 데이터를 시간순으로 정렬하여 브라우저를 통해 다운로드한다.
 class SessionExportService {
@@ -37,8 +42,13 @@ class SessionExportService {
     LearningState finalState,
   ) {
     return {
-      'exportVersion': '2.0',
+      'exportVersion': '2.1',
       'exportedAt': DateTime.now().toIso8601String(),
+      // 실험 조건: URL 쿼리(?condition=...)로 결정된 값을 그대로 기록한다.
+      // 분석 시 처치군/대조군 구분의 유일한 근거이므로 반드시 남긴다.
+      'experiment': {
+        'condition': ExperimentConfig.conditionLabel,
+      },
       'session': {
         'id': session.id,
         'title': session.title,
@@ -48,13 +58,16 @@ class SessionExportService {
     };
   }
 
-  /// 간소화된 타임라인 생성 (학생, 튜터, 학습 상태만 포함)
+  /// 간소화된 타임라인 생성 (학생, 튜터, 학습 상태, 검색 발동)
   ///
   /// 포함되는 항목:
   /// - student: 학생 메시지 (MessageRole.user)
   /// - tutor: 튜터 메시지 (MessageRole.model)
   /// - profile: 프로필 업데이트 (StateChangeType.profileUpdated)
-  /// - syllabus: 학습 플랜 업데이트 + 교수설계 이론 (StateChangeType.syllabusGenerated)
+  /// - syllabus: 학습 플랜 업데이트 (StateChangeType.syllabusGenerated)
+  /// - grounding: Google Search grounding 발동 (StateChangeType.groundingUsed)
+  ///   → 확정 실험설계(260624) §6-4 조절변수 '자료 검색 빈도' 산출용.
+  ///     대조군에서도 발생하므로 양 조건 모두에서 기록된다.
   List<Map<String, dynamic>> _buildSimplifiedTimeline(
     List<Message> messages,
     List<StateChangeEvent> stateChanges,
@@ -89,16 +102,24 @@ class SessionExportService {
           'profile': event.changes,
         });
       } else if (event.type == StateChangeType.syllabusGenerated) {
-        // Syllabus 생성 + ResourceCache (theories)
+        // Syllabus 생성
         final steps = event.changes['steps'] as List?;
         if (steps != null && steps.isNotEmpty) {
           timeline.add({
             'type': 'syllabus',
             'timestamp': event.timestamp.toIso8601String(),
             'syllabus': steps,
-            'theories': event.changes['theories'],
           });
         }
+      } else if (event.type == StateChangeType.groundingUsed) {
+        // Google Search grounding 발동 (source: tutor | freeform | designer)
+        timeline.add({
+          'type': 'grounding',
+          'timestamp': event.timestamp.toIso8601String(),
+          'source': event.changes['source'],
+          'searchQueries': event.changes['searchQueries'] ?? const [],
+          'sources': event.changes['sources'] ?? const [],
+        });
       }
       // 다른 StateChangeType 제외
     }
@@ -115,8 +136,10 @@ class SessionExportService {
 
   /// 다운로드 파일명을 생성한다.
   ///
-  /// 형식: YYYYMMDD_HHMM_<세션제목>.json
-  /// 예: 20260127_1430_안녕.json
+  /// 형식: YYYYMMDD_HHMM_<조건>_<세션제목>.json
+  /// 예: 20260127_1430_control_안녕.json
+  ///
+  /// 조건을 파일명에 넣어 참가자 파일을 열어보지 않고도 분류할 수 있게 한다.
   String _generateFilename(ChatSession session) {
     final now = DateTime.now();
     final dateStr = DateFormat('yyyyMMdd_HHmm').format(now);
@@ -136,7 +159,7 @@ class SessionExportService {
       sanitizedTitle = 'session';
     }
 
-    return '${dateStr}_$sanitizedTitle.json';
+    return '${dateStr}_${ExperimentConfig.conditionLabel}_$sanitizedTitle.json';
   }
 
   /// JSON 데이터를 브라우저를 통해 다운로드한다.
@@ -152,7 +175,7 @@ class SessionExportService {
     final url = html.Url.createObjectUrlFromBlob(blob);
 
     // 임시 앵커 엘리먼트를 생성하여 다운로드 트리거
-    final anchor = html.AnchorElement(href: url)
+    html.AnchorElement(href: url)
       ..setAttribute('download', filename)
       ..click();
 

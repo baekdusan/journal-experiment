@@ -502,12 +502,16 @@ class ChatController extends _$ChatController {
           (forceAnalyst || !wasMandatory);
 
       // ============================================================
-      // 6. 사용자 응답 표시: 로드맵 생성 안내는 앱 상태 기준으로만 제어
+      // 6. 사용자 응답 표시: 설계 시작 안내는 앱 상태 기준으로만 제어
       // ============================================================
+      // 문구에 '로드맵'처럼 시각물을 암시하는 표현을 쓰지 않는다.
+      // 로드맵 UI는 [ExperimentConfig.showLearningRoadmap]=false로 숨겨져 있어,
+      // 보이지도 않는 것을 예고하면 학습자가 찾아 헤매게 되기 때문이다
+      // (주 종속변수인 지각된 방향상실을 인위적으로 올린다).
       if (shouldTriggerDesign) {
         _appendAssistantMessage(
           sessionId,
-          '좋아요. 필요한 정보를 확인했어요. 이제 학습 로드맵을 만들고 바로 수업을 시작할게요.',
+          '좋아요. 필요한 정보를 확인했어요. 학습 순서를 정하고 바로 수업을 시작할게요.',
         );
       } else {
         final safeResponse = _sanitizeAnalystResponse(
@@ -998,7 +1002,7 @@ class ChatController extends _$ChatController {
         await ref
             .read(learningStateProvider.notifier)
             .setDesigning(false);
-        _appendSystemMessage(sessionId, '로드맵 생성에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        _appendSystemMessage(sessionId, '학습 준비에 실패했어요. 잠시 후 다시 시도해 주세요.');
       } finally {
         _exit();
       }
@@ -1182,7 +1186,7 @@ class ChatController extends _$ChatController {
       return '좋아요. 필요한 정보를 정리하고 있어요.';
     }
 
-    return '좋아요. 로드맵을 만들기 전에 ${missing.join(', ')} 알려주세요.';
+    return '좋아요. 수업을 시작하기 전에 ${missing.join(', ')} 알려주세요.';
   }
 
   /// ============================================================
