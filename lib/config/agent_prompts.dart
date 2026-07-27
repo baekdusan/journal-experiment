@@ -26,6 +26,19 @@ import '../models/learning_state.dart';
 class AgentPrompts {
   AgentPrompts._(); // 인스턴스화 방지
 
+  /// 아직 파악되지 않은 문자열 필드를 프롬프트에 안전하게 표기한다.
+  ///
+  /// 보간(`${profile.subject}`)을 그대로 쓰면 값이 없을 때 프롬프트에
+  /// `subject: null`이라는 문자열이 박혀 모델이 이를 값으로 오해한다.
+  /// level/tone처럼 '미정'으로 통일해 표기한다.
+  static String _orUndecided(String? value) {
+    if (value == null) return '미정';
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '미정';
+    if (trimmed.toLowerCase() == 'null') return '미정';
+    return trimmed;
+  }
+
   // ==========================================================================
   // Intent Classifier
   // 사용처: lib/services/intent_classifier_service.dart → classify()
@@ -108,8 +121,8 @@ $contextSection
 수업 계획을 참고하여 학습자의 흐름에 맞게 자연스럽게 수업을 진행하라.
 
 [현재 학습 상태]
-- 주제(subject): ${profile.subject}
-- 목표(goal): ${profile.goal}
+- 주제(subject): ${_orUndecided(profile.subject)}
+- 목표(goal): ${_orUndecided(profile.goal)}
 - 수준(level): $level
 - 선호 말투(tone_preference): $toneDisplay
 - 현재 단계: $currentStepLine
@@ -181,9 +194,19 @@ $syllabusBlock
       (예: "편하게 말해줘", "존댓말로 해줘")
       사용자가 반말/존댓말로 입력했다는 사실만으로 tone_preference를 명시했다고 보지 마라.
 
+    [field_confidence 산정 기준]
+    각 필드에 대해 "사용자 발화에서 그 값을 그대로 인용할 수 있는가"를 0.0~1.0으로 매겨라.
+    - 1.0: 사용자가 해당 값을 문장으로 직접 말했다. 근거 문구를 그대로 집어낼 수 있다.
+    - 0.5: 사용자가 간접적으로 암시했으나 직접 진술하지는 않았다.
+    - 0.0: 사용자 발화에 근거가 없다. 문체·상식·주제 난이도로 추론했을 뿐이다.
+    인사말("안녕", "하이루")·감탄사·이모지처럼 내용이 없는 발화에서는
+    subject를 포함한 모든 필드의 confidence가 0.0이다.
+    확신이 서지 않으면 낮게 매겨라. 낮게 매겨서 다시 묻는 편이,
+    틀린 값을 확정하는 것보다 항상 낫다.
+
     [현재까지 파악된 정보]
-    - subject: ${profile.subject}
-    - goal: ${profile.goal}
+    - subject: ${_orUndecided(profile.subject)}
+    - goal: ${_orUndecided(profile.goal)}
     - level: $level
     - tone_preference: $tone
 
@@ -191,11 +214,20 @@ $syllabusBlock
     $userText
 
     [판단 예시 - 주제는 어떤 것이든 동일하게 적용]
-    상황: 사용자가 학습 주제만 말하고, 목표·수준·말투는 언급하지 않은 경우
+    상황 1: 사용자가 학습 주제만 말하고, 목표·수준·말투는 언급하지 않은 경우
     → extracted_info: subject=<사용자가 말한 주제>, goal=null, level=null, tone_preference=null
     → explicit_fields: subject=true, goal=false, level=false, tone_preference=false
+    → field_confidence: subject=1.0, goal=0.0, level=0.0, tone_preference=0.0
     → response: 그 주제를 배우고 싶다는 점에 공감하고, 다음으로 필요한 정보(예: 목표)를 자연스럽게 되묻는다.
        (수준이나 말투는 언급하거나 단정하지 않는다)
+
+    상황 2: 사용자가 인사만 한 경우 (예: "하이루", "안녕하세요")
+    → extracted_info: 전부 null
+    → explicit_fields: 전부 false
+    → field_confidence: 전부 0.0
+    → response: 인사에 답하고 무엇을 배우고 싶은지 묻는다.
+       반말로 인사했다는 이유로 말투를 정하지 말고,
+       수준을 짐작해 "중급이시군요" 같은 말을 절대 하지 마라.
 
     [출력 규칙]
     - 반드시 JSON만 출력하라.
@@ -230,8 +262,8 @@ $syllabusBlock
       학습자의 요청을 반영하여 프로필을 업데이트하고, 필요하면 수업 계획 재설계를 요청하라.
 
       [현재 학습 상태]
-      - 주제(subject): ${profile.subject}
-      - 목표(goal): ${profile.goal}
+      - 주제(subject): ${_orUndecided(profile.subject)}
+      - 목표(goal): ${_orUndecided(profile.goal)}
       - 수준(level): $level
       - 선호 말투(tone_preference): $tone
 
@@ -281,8 +313,8 @@ $syllabusBlock
 Google 검색으로 자료를 조사한 뒤, 학습자가 '주제(subject)'를 마스터하여 '목표(goal)'에 도달할 수 있는 커리큘럼 초안을 설계하라.
 
 [입력 정보]
-- subject: ${profile.subject}
-- goal: ${profile.goal}
+- subject: ${_orUndecided(profile.subject)}
+- goal: ${_orUndecided(profile.goal)}
 - level: $level
 - tone_preference: $tone
 $redesignNote

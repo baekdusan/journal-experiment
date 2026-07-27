@@ -455,6 +455,8 @@ class ChatController extends _$ChatController {
         'goal': result.goal,
         'level': result.level?.name,
         'tone': result.tonePreference?.name,
+        // 게이트에 걸려 null이 된 필드를 구분하기 위해 원 확신도를 함께 남긴다.
+        'confidence': result.fieldConfidence,
       });
 
       // ============================================================

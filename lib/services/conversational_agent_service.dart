@@ -12,12 +12,17 @@ class AnalystResult {
   final LearnerLevel? level;
   final TonePreference? tonePreference;
 
+  /// 필드별 명시 확신도(0.0~1.0). 게이트 통과 여부와 무관하게 모델이 보고한
+  /// 원값을 그대로 담는다 — 왜 값이 기각됐는지 로그에서 추적하기 위함이다.
+  final Map<String, double> fieldConfidence;
+
   AnalystResult({
     required this.response,
     this.subject,
     this.goal,
     this.level,
     this.tonePreference,
+    this.fieldConfidence = const {},
   });
 }
 
@@ -40,7 +45,13 @@ class FeedbackResult {
 }
 
 class ConversationalAgentService {
-  
+  /// 명시 확신도 임계값. 이 값 미만이면 explicit_fields=true여도 기각한다.
+  ///
+  /// [StepProgressService]의 판정이 `confidence < 0.6`이면 단계를 전진시키지
+  /// 않는 것과 같은 기준을 쓴다 (chat_provider.dart `_evaluateStepProgress`).
+  static const double _explicitConfidenceThreshold = 0.6;
+
+
   // 학습 내 발화 시 수업 진행용 시스템 프롬프트 (처치군 전용).
   // GeminiService.streamResponse의 systemInstruction으로 주입되며,
   // 상태(로드맵 진행 마킹 ✓▶○)가 바뀌므로 매 턴 새로 빌드한다.
@@ -106,7 +117,27 @@ class ConversationalAgentService {
           ],
         ),
 
-        // 1-3. response: 사용자에게 보여줄 자연스러운 한국어 응답
+        // 1-3. field_confidence: 각 필드의 "명시 확신도" (0.0~1.0)
+        // explicit_fields(불린)만으로는 모델이 추론을 명시라고 잘못 보고해도
+        // 걸러낼 수 없다. StepProgress가 confidence 임계값으로 단계 전진을
+        // 통제하는 것과 동일하게, 독립된 확신도 축을 하나 더 요구한다.
+        'field_confidence': Schema.object(
+          properties: {
+            'subject': Schema.number(description: 'subject 명시 확신도 (0.0~1.0)'),
+            'goal': Schema.number(description: 'goal 명시 확신도 (0.0~1.0)'),
+            'level': Schema.number(description: 'level 명시 확신도 (0.0~1.0)'),
+            'tone_preference':
+                Schema.number(description: 'tone_preference 명시 확신도 (0.0~1.0)'),
+          },
+          optionalProperties: [
+            'subject',
+            'goal',
+            'level',
+            'tone_preference',
+          ],
+        ),
+
+        // 1-4. response: 사용자에게 보여줄 자연스러운 한국어 응답
         'response': Schema.string(description: '사용자에게 보여줄 응답'),
       },
     );
@@ -152,18 +183,38 @@ class ConversationalAgentService {
         (data['explicit_fields'] as Map?)?.cast<String, dynamic>() ??
             <String, dynamic>{};
 
-    // ============================================================
-    // 5. explicit_fields 기반 검증
-    // ============================================================
-    // LLM이 "이 정보는 명시적으로 언급되었다"고 표시한 것만 추출합니다.
-    // 이를 통해 LLM의 "추측"을 차단하고, 실제 사용자 발화에서 나온 정보만 사용합니다.
-    final subjectExplicit = explicit['subject'] as bool? ?? false;
-    final goalExplicit = explicit['goal'] as bool? ?? false;
-    final levelExplicit = explicit['level'] as bool? ?? false;
-    final toneExplicit = explicit['tone_preference'] as bool? ?? false;
+    // 4-3. field_confidence 파싱 (기본값: 빈 맵)
+    final confidenceRaw =
+        (data['field_confidence'] as Map?)?.cast<String, dynamic>() ??
+            <String, dynamic>{};
+    final confidence = <String, double>{
+      for (final key in const ['subject', 'goal', 'level', 'tone_preference'])
+        key: confidenceRaw[key] is num
+            ? (confidenceRaw[key] as num).toDouble().clamp(0.0, 1.0)
+            : 0.0,
+    };
 
     // ============================================================
-    // 6. 최종 데이터 구성: explicit_fields가 true인 것만 추출
+    // 5. 이중 게이트 검증: explicit_fields AND field_confidence
+    // ============================================================
+    // 불린 플래그 하나만 보면, 모델이 추론한 값을 "명시적으로 언급됐다"고
+    // 잘못 보고할 때 그대로 통과한다 (예: "하이루" → level=intermediate).
+    // 서로 다른 두 축(명시 여부 · 확신도)을 모두 요구해 오탐을 줄인다.
+    // 같은 원리를 Feedback 경로는 needs_redesign AND explicit_change로,
+    // StepProgress는 step_completed AND confidence>=0.6으로 쓰고 있다.
+    bool passes(String field) {
+      final isExplicit = explicit[field] as bool? ?? false;
+      final conf = confidence[field] ?? 0.0;
+      return isExplicit && conf >= _explicitConfidenceThreshold;
+    }
+
+    final subjectExplicit = passes('subject');
+    final goalExplicit = passes('goal');
+    final levelExplicit = passes('level');
+    final toneExplicit = passes('tone_preference');
+
+    // ============================================================
+    // 6. 최종 데이터 구성: 이중 게이트를 통과한 것만 추출
     // ============================================================
     // 6-1. subject: 명시적으로 언급되었을 때만 정규화 후 반환
     final subject = subjectExplicit
@@ -196,6 +247,9 @@ class ConversationalAgentService {
               extracted['tone_preference'] as String,
             )
           : null,
+
+      // 게이트에 걸린 값도 추적할 수 있도록 원 확신도를 그대로 전달
+      fieldConfidence: confidence,
     );
   }
 

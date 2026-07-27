@@ -36,9 +36,14 @@ class _ChatInputState extends State<ChatInput> {
   ///
   /// 공백만 있는 경우 무시하고, 유효한 텍스트가 있으면
   /// [ChatController.sendMessage]를 호출한 뒤 입력 필드를 초기화한다.
+  /// 한글 등 IME 조합 중에도 전송을 막지 않는다.
+  ///
+  /// `composing.isValid`로 막으면 한글 입력 시 마지막 글자가 조합 상태로 남아
+  /// 첫 엔터가 조합 확정에만 쓰이고 버려진다 — 엔터를 두 번 눌러야 전송되는
+  /// 원인이었다. [TextEditingController.text]는 조합 중인 글자까지 포함하므로
+  /// 이 시점에 전송해도 입력한 문장이 온전히 넘어간다.
   void _submit(WidgetRef ref) {
     if (!mounted) return;
-    if (_controller.value.composing.isValid) return;
     final isDesigning = ref.read(learningStateProvider).isDesigning;
     final isProcessing = ref.read(isProcessingProvider);
     if (isDesigning || isProcessing) return;
@@ -116,9 +121,8 @@ class _ChatInputState extends State<ChatInput> {
                               if (HardwareKeyboard.instance.isShiftPressed) {
                                 return KeyEventResult.ignored;
                               }
-                              if (_controller.value.composing.isValid) {
-                                return KeyEventResult.ignored;
-                              }
+                              // IME 조합 중(한글 마지막 글자)에도 전송한다.
+                              // 자세한 이유는 [_submit] 주석 참고.
                               if (!blocked) {
                                 _submit(ref);
                               }

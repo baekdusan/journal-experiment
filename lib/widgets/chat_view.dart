@@ -4,6 +4,7 @@ import '../config/experiment_config.dart';
 import '../models/chat_session.dart';
 import '../providers/chat_provider.dart';
 import '../providers/learning_state_provider.dart';
+import '../providers/streaming_message_provider.dart';
 import '../models/instructional_design.dart' as id;
 import '../models/learner_profile.dart';
 import '../models/learning_state.dart';
@@ -32,18 +33,36 @@ class _ChatViewState extends ConsumerState<ChatView> {
     super.dispose();
   }
 
-  /// 메시지 목록을 최하단으로 애니메이션 스크롤한다.
+  /// 메시지 목록을 최하단으로 스크롤한다.
   ///
   /// 새 메시지가 추가되거나 스트리밍 중일 때 호출되어
   /// 사용자가 항상 최신 메시지를 볼 수 있도록 한다.
-  void _scrollToBottom() {
-    if (_scrollController.hasClients) {
+  ///
+  /// [animate]=false는 스트리밍 청크용이다. 청크는 수십 ms 간격으로 들어오는데
+  /// 매번 300ms 애니메이션을 걸면 직전 애니메이션이 계속 취소·재시작되어
+  /// 오히려 따라가지 못한다. 늘어난 만큼 즉시 붙는 편이 부드럽다.
+  void _scrollToBottom({bool animate = true}) {
+    if (!_scrollController.hasClients) return;
+    final target = _scrollController.position.maxScrollExtent;
+    if (animate) {
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        target,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
+    } else {
+      _scrollController.jumpTo(target);
     }
+  }
+
+  /// 뷰가 최하단 근처에 있는지 여부.
+  ///
+  /// 사용자가 위로 올려 이전 내용을 읽는 중이라면 자동 스크롤이 방해가 되므로,
+  /// 따라 내리기는 이미 바닥을 보고 있을 때만 수행한다.
+  bool _isNearBottom() {
+    if (!_scrollController.hasClients) return true;
+    final position = _scrollController.position;
+    return position.maxScrollExtent - position.pixels < 120;
   }
 
   @override
@@ -63,7 +82,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
       final shouldScroll = previous == null ||
           // 새 메시지 추가
           next.messages.length > previous.messages.length ||
-          // 스트리밍 완료 (청크 수신 중에는 스크롤 안 함)
+          // 스트리밍 완료 시 최종 레이아웃에 맞춰 한 번 더 보정
           (previous.messages.isNotEmpty &&
               next.messages.isNotEmpty &&
               previous.messages.last.isStreaming &&
@@ -72,6 +91,23 @@ class _ChatViewState extends ConsumerState<ChatView> {
       if (shouldScroll) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
+    });
+
+    // 스트리밍 청크를 따라 내려간다.
+    //
+    // 청크는 ChatSession이 아니라 streamingMessageProvider에만 누적되므로
+    // (streaming_message_provider.dart 참고 — 세션은 완료 시 1회만 갱신된다)
+    // 위의 activeSessionProvider 리스너는 청크 도중 호출되지 않는다.
+    // 답변이 한 줄씩 늘어나는 동안 화면이 따라가려면 이쪽을 함께 들어야 한다.
+    ref.listen(streamingMessageProvider, (previous, next) {
+      if (next == null) return;
+      if (previous?.content == next.content) return;
+      // 렌더 전 위치로 판단한다 — 청크가 붙으면 maxScrollExtent가 늘어나
+      // 프레임 이후에는 항상 "바닥에서 멀다"고 나오기 때문이다.
+      if (!_isNearBottom()) return;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _scrollToBottom(animate: false),
+      );
     });
 
     // 타이핑 인디케이터가 나타나면 하단으로 스크롤하여 보이게 한다.
