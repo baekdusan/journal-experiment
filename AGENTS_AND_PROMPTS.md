@@ -5,22 +5,48 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 > **아키텍처 패턴**: "LLM이 판단"하는 Fat Agent 방식이 아닌, **"앱이 판단하고 LLM은 생성만"** 하는 Stateless Micro-Services 패턴.
 > `ChatController`(App Orchestrator)가 상태 기반으로 라우팅하고, 각 에이전트는 분류/추출/생성만 담당합니다.
 
+> **프롬프트 원문**: 모든 프롬프트는 [`lib/config/agent_prompts.dart`](lib/config/agent_prompts.dart)에 중앙화되어 있습니다.
+> 이 문서의 프롬프트는 런타임 보간부를 `{...}`로 표기한 사본입니다. **수정은 `agent_prompts.dart`에서 하고 이 문서를 갱신하세요.**
+
+> **적용 범위**: 처치군(treatment) 전용입니다. 대조군(control)은 **시스템 프롬프트가 전혀 없는 순수 모델**이므로 프롬프트가 존재하지 않습니다.
+> 전체 흐름은 [flowchart.md](flowchart.md) 참고.
+
 ## 모델 설정 (`lib/config/ai_models.dart`)
 
 | 용도 | 에이전트 | 모델 | Location | Temperature |
 |------|----------|------|----------|-------------|
-| 분류·추출 (`extractor`) | Intent / Analyst / Feedback / StepProgress | `gemini-2.5-flash` | `us-central1` | 0.0 (Analyst), 0.3 (Feedback) |
-| 튜터 스트리밍 (`tutor`) | Conversational Tutor | `gemini-2.5-flash` | `us-central1` | 기본값 |
-| 교수설계 생성 (`designer`) | Syllabus Designer | `gemini-3.5-flash` | `global` | 0.3 |
+| 분류·추출 (`extractor`) | Intent / Analyst / StepProgress / Designer 2단계 | `gemini-2.5-flash` | `us-central1` | 0.0 |
+| 분류·추출 (`extractor`) | Feedback | `gemini-2.5-flash` | `us-central1` | 0.3 |
+| 학습자 대면 (`tutor`) | Tutor **+ 대조군 순수 모델 공용** | `gemini-3.5-flash` | `global` | 기본값 |
+| 교수설계 (`designer`) | Syllabus Designer 1단계 | `gemini-3.5-flash` | `global` | 0.3 |
+
+> `tutor`는 양 조건이 공유하는 **통제 변인**이다. 이 값 하나로 처치군 Tutor와 대조군 순수 모델이 함께 바뀐다.
+> location 제약: `gemini-2.5-flash` → `us-central1` 전용, `gemini-3.5-flash` → `global` 전용 (교차 시 404).
+
+## 검색(grounding) 사용 지점
+
+자료 취득은 로컬 캐시 없이 `Tool.googleSearch()` grounding으로만 이뤄진다.
+검색을 가진 지점은 **둘뿐**이며, 나머지 에이전트는 검색 없는 JSON 추출기다.
+
+| 에이전트 | 검색 | 비고 |
+|----------|------|------|
+| Syllabus Designer **1단계** | O | 기존 커리큘럼·시험 범위·튜토리얼 목차 조사 |
+| Tutor (학습자 대면 스트리밍) | O | 대조군도 동일하게 활성 (통제 변인) |
+| Intent / Analyst / Feedback / StepProgress / Designer 2단계 | ✕ | `responseSchema` JSON 강제 |
+
+> `googleSearch` 도구와 `responseSchema`(JSON 강제)는 **한 호출에서 병용할 수 없다.**
+> 검색이 필요한 JSON 에이전트는 Designer처럼 2단계로 분리해야 한다.
 
 ---
 
 ## 1. Intent Classifier (의도 분류기)
 
-- **파일**: `lib/services/intent_classifier_service.dart`
+- **파일**: `lib/services/intent_classifier_service.dart` · `classify()`
+- **프롬프트**: `AgentPrompts.intentClassifier()`
 - **역할**: 학습자 발화가 '수업의 틀을 바꾸는'(out_of_class) 발화인지, '진행 중 수업 내용'(in_class)에 대한 발화인지 분류
-- **모델**: `gemini-2.5-flash` / temperature 0.0 / JSON 출력
+- **모델**: `extractor` / temperature 0.0 / JSON 출력
 - **출력 스키마**: `{ intent: "out_of_class" | "in_class" }`
+- **실패 시**: 응답이 비었거나 파싱 실패면 `in_class`로 폴백
 
 ### 프롬프트
 
@@ -63,20 +89,32 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 ## 2. Conversational Agent (대화 에이전트, 3가지 모드)
 
 - **파일**: `lib/services/conversational_agent_service.dart`
-- 하나의 서비스가 **Tutor / Analyst / Feedback** 3가지 모드 프롬프트를 제공합니다.
+- 하나의 서비스가 **Tutor / Analyst / Feedback** 3가지 프롬프트를 제공합니다.
 
 ### 2-A. Tutor 모드 (스트리밍, 학습 진행)
 
-- **메서드**: `buildTutorStreamingPrompt()`
-- **역할**: in_class 발화 시, 학습 로드맵을 참고하여 실제 수업을 진행 (스트리밍 응답)
-- **모델**: `gemini-2.5-flash` (tutor 스펙) / 자연어 출력
-- **특징**: 진행 마킹(✓ 완료 / ▶ 현재 / ○ 예정), 참고 자료(Wikidata) 및 교수설계 이론 블록 삽입
+- **메서드**: `buildTutorSystemInstruction()` → 프롬프트 `AgentPrompts.tutorSystem()`
+- **실제 호출**: `lib/services/gemini_service.dart` · `streamResponse()`
+- **역할**: in_class 발화 시, 수업 계획을 참고하여 실제 수업을 진행 (스트리밍 응답)
+- **모델**: `tutor` (`gemini-3.5-flash` / global) / grounding **O** / 자연어 출력
 
-#### 프롬프트
+#### 3분할 전달 구조
+
+Tutor는 프롬프트 한 덩어리가 아니라 **세 경로로 나눠** 전달된다:
+
+| 내용 | 전달 경로 |
+|------|-----------|
+| 상태 + 수업 계획 + 튜터링 원칙 | `systemInstruction` (매 턴 재빌드) |
+| 대화 이력 | Gemini chat `history` (세션 전체) |
+| 이번 발화 | user 메시지 |
+
+`systemInstruction`은 요청마다 함께 전송되는 값이라(서버 고정 아님) 매 턴 현재 단계 마킹(✓▶○)을 갱신해 새로 빌드한다.
+
+#### 프롬프트 (systemInstruction)
 
 ```
 너는 학습자를 돕는 친절하고 전문적인 튜터다.
-학습 로드맵을 참고하여 학습자의 흐름에 맞게 자연스럽게 수업을 진행하라.
+수업 계획을 참고하여 학습자의 흐름에 맞게 자연스럽게 수업을 진행하라.
 
 [현재 학습 상태]
 - 주제(subject): {subject}
@@ -85,13 +123,8 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 - 선호 말투(tone_preference): {toneDisplay}
 - 현재 단계: {progressLabel} — {currentStep.topic}
 
-[학습 로드맵]
-{syllabusBlock}   ← 각 단계 앞에 ✓/▶/○ 마킹
-
-[최근 대화 요약]
-{historyBlock}
-
-{resourcesBlock}   ← 참고 자료(학습 자료 최대 3개 + 적용 교수설계 이론 최대 5개)
+[수업 계획]
+{syllabusBlock}   ← 각 단계 앞에 ✓ 완료 / ▶ 현재 / ○ 예정 마킹
 
 [튜터링 원칙]
 1) 정답을 먼저 말하지 마라. (비계 설정/Scaffolding)
@@ -102,24 +135,32 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 6) tone_preference가 미정이면 기본적으로 kind 말투로 응답하라.
 7) 설명은 지나치게 짧지 않게 3~6문장 정도로 충분히 풀어라.
 8) 사용자가 "그냥 알려줘"라고 하면 질문 없이 설명만 하라.
-9) 로드맵의 모든 내용을 충분히 다뤘다고 판단되면, 학습 완료 여부를 자연스럽게 물어보라.
-10) 참고 자료를 활용할 때는 반드시 URL 링크를 함께 제공하라.
+9) 수업 계획의 모든 내용을 충분히 다뤘다고 판단되면, 학습 완료 여부를 자연스럽게 물어보라.
+10) 설명에 필요한 자료는 검색으로 찾아 그 내용에 근거하여 설명하고, 확인되지 않은 사실을 지어내지 마라.
 11) 교수설계 이론을 적용하여 효과적으로 학습을 안내하라.
-
-[입력]
-{userText}
 
 [출력 규칙]
 - 반드시 한국어 자연어로만 답하라.
 - JSON을 출력하지 마라.
 ```
 
+> 학습자에게 노출되는 용어는 '수업 계획'으로 통일한다. 로드맵 UI는 `showLearningRoadmap=false`로 숨겨져 있어,
+> 보이지 않는 시각물을 암시하면 주 종속변수인 지각된 방향상실을 인위적으로 올린다.
+
 ### 2-B. Analyst 모드 (정보 수집)
 
-- **메서드**: `runAnalyst()` / `_buildAnalystPrompt()`
-- **역할**: out_of_class 발화 시, 대화를 통해 학습자 정보(subject/goal/level/tone) 추출. `explicit_fields`로 LLM의 추측을 차단.
-- **모델**: `gemini-2.5-flash` / temperature 0.0 / JSON 출력
-- **출력 스키마**: `{ extracted_info: {subject, goal, level, tone_preference}, explicit_fields: {각 필드 bool}, response }`
+- **메서드**: `runAnalyst()` → 프롬프트 `AgentPrompts.analyst()`
+- **역할**: 프로필 미완성 시, 대화를 통해 학습자 정보(subject/goal/level/tone) 추출
+- **모델**: `extractor` / temperature 0.0 / JSON 출력
+- **출력 스키마**: `{ extracted_info, explicit_fields, field_confidence, response }`
+
+#### 이중 게이트
+
+`explicit_fields`(명시 여부) **AND** `field_confidence >= 0.6`(확신도) 두 축을 **모두** 통과한 필드만 상태에 반영된다
+([conversational_agent_service.dart:204-208](lib/services/conversational_agent_service.dart#L204-L208)).
+
+불린 플래그 하나만 보면 모델이 추론한 값을 "명시적으로 언급됐다"고 잘못 보고할 때 그대로 통과한다
+(예: "하이루" → `level=intermediate`). 게이트에 걸려 `null`이 된 필드는 원 확신도와 함께 `analyst.extract` 로그에 남는다.
 
 #### 프롬프트
 
@@ -142,7 +183,7 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 1) 이미 파악된 정보는 다시 묻지 마라.
 2) 사용자가 이미 답한 정보는 extracted_info에 반드시 반영하라.
 3) 필수 정보(subject, goal, level)가 모두 파악되어도
-  "이제 로드맵을 만들겠다"는 식의 확정 문구는 직접 말하지 마라.
+  "이제 로드맵/수업 계획/커리큘럼을 만들겠다"는 식의 확정 문구는 직접 말하지 마라.
   최종 생성 시작 안내는 시스템이 별도로 처리한다.
   추가 질문은 하지 마라.
 4) 현재 정보(subject, goal, level)가 '미정'이면 그 정보를 얻기 위한 질문을 우선하라.
@@ -161,6 +202,16 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
   (예: "편하게 말해줘", "존댓말로 해줘")
   사용자가 반말/존댓말로 입력했다는 사실만으로 tone_preference를 명시했다고 보지 마라.
 
+[field_confidence 산정 기준]
+각 필드에 대해 "사용자 발화에서 그 값을 그대로 인용할 수 있는가"를 0.0~1.0으로 매겨라.
+- 1.0: 사용자가 해당 값을 문장으로 직접 말했다. 근거 문구를 그대로 집어낼 수 있다.
+- 0.5: 사용자가 간접적으로 암시했으나 직접 진술하지는 않았다.
+- 0.0: 사용자 발화에 근거가 없다. 문체·상식·주제 난이도로 추론했을 뿐이다.
+인사말("안녕", "하이루")·감탄사·이모지처럼 내용이 없는 발화에서는
+subject를 포함한 모든 필드의 confidence가 0.0이다.
+확신이 서지 않으면 낮게 매겨라. 낮게 매겨서 다시 묻는 편이,
+틀린 값을 확정하는 것보다 항상 낫다.
+
 [현재까지 파악된 정보]
 - subject: {subject}
 - goal: {goal}
@@ -171,11 +222,20 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 {userText}
 
 [판단 예시 - 주제는 어떤 것이든 동일하게 적용]
-상황: 사용자가 학습 주제만 말하고, 목표·수준·말투는 언급하지 않은 경우
+상황 1: 사용자가 학습 주제만 말하고, 목표·수준·말투는 언급하지 않은 경우
 → extracted_info: subject=<사용자가 말한 주제>, goal=null, level=null, tone_preference=null
 → explicit_fields: subject=true, goal=false, level=false, tone_preference=false
+→ field_confidence: subject=1.0, goal=0.0, level=0.0, tone_preference=0.0
 → response: 그 주제를 배우고 싶다는 점에 공감하고, 다음으로 필요한 정보(예: 목표)를 자연스럽게 되묻는다.
    (수준이나 말투는 언급하거나 단정하지 않는다)
+
+상황 2: 사용자가 인사만 한 경우 (예: "하이루", "안녕하세요")
+→ extracted_info: 전부 null
+→ explicit_fields: 전부 false
+→ field_confidence: 전부 0.0
+→ response: 인사에 답하고 무엇을 배우고 싶은지 묻는다.
+   반말로 인사했다는 이유로 말투를 정하지 말고,
+   수준을 짐작해 "중급이시군요" 같은 말을 절대 하지 마라.
 
 [출력 규칙]
 - 반드시 JSON만 출력하라.
@@ -186,16 +246,25 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 
 ### 2-C. Feedback 모드 (피드백 처리 / 재설계 위임)
 
-- **메서드**: `runFeedback()` / `_buildFeedbackPrompt()`
-- **역할**: 로드맵 설계 이후 out_of_class 발화 시, 단순 조정(난이도/말투)은 프로필만 업데이트하고, 경로 변경(목표/주제/순서)이 필요하면 `needs_redesign=true`로 Syllabus Designer에게 위임.
-- **모델**: `gemini-2.5-flash` / temperature 0.3 / JSON 출력
+- **메서드**: `runFeedback()` → 프롬프트 `AgentPrompts.feedback()`
+- **역할**: 설계 이후 out_of_class 발화 시, 단순 조정(난이도/말투)은 프로필만 업데이트하고, 경로 변경(목표/주제/순서)이 필요하면 `needs_redesign=true`로 Syllabus Designer에게 위임
+- **모델**: `extractor` / temperature 0.3 / JSON 출력
 - **출력 스키마**: `{ profile_update: {level, tone_preference}, response, needs_redesign, explicit_change, redesign_request }`
+- **입력 히스토리**: 최근 6턴 윈도우
+
+#### 처리 순서 (`chat_provider.dart:838-877`)
+
+1. `response`를 **항상 먼저** 화면에 출력 (재설계 경로에서도 동일)
+2. `explicitChange == true` → `level` / `tonePreference` 프로필 반영
+3. `needsRedesign && explicitChange` → `_startSyllabusDesign(isRedesign: true)`
+4. `needsRedesign && !explicitChange` → **LLM 오판으로 간주해 무시**하고 로그만 남김
+   (예: "이거 너무 어려운데요?" → 재설계 필요로 착각)
 
 #### 프롬프트
 
 ```
 너는 학습자의 피드백을 수용하는 유연한 튜터다.
-학습자의 요청을 반영하여 프로필을 업데이트하고, 필요하면 학습 로드맵 재설계를 요청하라.
+학습자의 요청을 반영하여 프로필을 업데이트하고, 필요하면 수업 계획 재설계를 요청하라.
 
 [현재 학습 상태]
 - 주제(subject): {subject}
@@ -203,8 +272,8 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 - 수준(level): {level}
 - 선호 말투(tone_preference): {tone}
 
-[학습 로드맵]
-{syllabusBlock}
+[수업 계획]
+{syllabusBlock}   ← "N. topic" 목록 (마킹 없음)
 
 [최근 대화 요약]
 {historyBlock}
@@ -229,18 +298,23 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 
 ---
 
-## 3. Syllabus Designer (교수설계자)
+## 3. Syllabus Designer (교수설계자) — 2단계 호출
 
-- **파일**: `lib/services/syllabus_designer_service.dart`
-- **역할**: 학습자 프로필 + 참고 자료(Wikidata 개념 + RAG 교수설계 이론)를 바탕으로 1~5단계 커리큘럼과 적용 교수설계 이론을 생성. 재설계 요청도 반영.
-- **모델**: `gemini-3.5-flash` (global) / temperature 0.3 / JSON 출력
-- **출력 스키마**: `{ syllabus: [{step, topic, objective}], theories: [{theoryName, description, applicability}] }`
+- **파일**: `lib/services/syllabus_designer_service.dart` · `generate()`
+- **역할**: 학습자 프로필을 바탕으로 검색 조사를 거쳐 1~5단계 커리큘럼 생성. 재설계 요청도 반영
+- **실행 방식**: `Future(...)` 백그라운드 (UI 논블로킹), 완료 후 자동으로 첫 수업 시작
+- **반환**: `(syllabus, searchQueries, sources)` — grounding 정보는 `groundingUsed` 이벤트로 세션 로그에 기록
 
-### 프롬프트
+`googleSearch`와 `responseSchema`를 한 호출에 쓸 수 없으므로 **반드시 2단계로 분리**한다.
+
+### 3-A. 1단계: 검색 조사 + 초안 (자연어)
+
+- **프롬프트**: `AgentPrompts.syllabusResearch()`
+- **모델**: `designer` (`gemini-3.5-flash` / global) / temperature 0.3 / grounding **O** / 자연어 출력
 
 ```
 너는 전문 교수설계자(Instructional Designer)다.
-학습자의 프로필을 바탕으로 '주제(subject)'를 마스터하여 '목표(goal)'에 도달할 수 있는 커리큘럼을 설계하라.
+Google 검색으로 자료를 조사한 뒤, 학습자가 '주제(subject)'를 마스터하여 '목표(goal)'에 도달할 수 있는 커리큘럼 초안을 설계하라.
 
 [입력 정보]
 - subject: {subject}
@@ -248,7 +322,11 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 - level: {level}
 - tone_preference: {tone}
 {redesignNote}   ← 재설계 요청이 있을 때만 [재설계 요청] 블록 삽입
-{resourceBlock}  ← 참고 자료(주제 개념 + 교수설계 이론) 블록
+
+[검색 조사 지침]
+1) 이 주제의 기존 강의 커리큘럼, 공인 자격증 시험 범위(syllabus), 교재·튜토리얼 목차를 검색해서 찾아라.
+2) 검색으로 찾은 자료의 구조와 순서를 참조하여 단계를 배열하라.
+3) 검색으로 확인되지 않은 내용을 지어내지 마라.
 
 [커리큘럼 설계 원칙]
 1) 단계는 1~5개로 구성하라.
@@ -258,31 +336,55 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 5) level에 맞게 난이도를 조절하라.
 6) 최종 단계는 goal과 직접 연결되어야 한다.
 7) 각 단계는 이전 단계의 지식을 기반으로 해야 한다.
-8) 참고 자료의 교수설계 이론을 적극 활용하여 효과적인 커리큘럼을 설계하라.
+8) 교수설계 이론(예: Scaffolding, 선수학습 계열화)을 적용하여 효과적인 커리큘럼을 설계하라.
 
-[교수설계 이론 추출]
-참고 자료에 제공된 교수설계 이론 중에서:
-1) 이 커리큘럼 설계에 실제로 적용한 이론을 최대 3개 선택하라.
-2) 각 이론에 대해:
-   - theoryName: 정확한 이론 명칭
-   - description: 이론의 핵심 개념 (2-3문장)
-   - applicability: 이 커리큘럼에서 어떻게 적용했는지 구체적으로 설명
-3) 참고 자료에 없는 이론을 만들어내지 마라.
-4) 참고 자료가 없다면 theories는 빈 배열로 반환하라.
+[출력 형식]
+- 각 단계를 "단계 N: <소주제(topic)> — <학습목표(objective)>" 형식의 목록으로 명확히 기술하라.
+- 마지막에 참조한 자료의 제목을 간단히 나열하라.
+- 한국어로 작성하라.
+```
+
+### 3-B. 2단계: 초안 → JSON 구조화
+
+- **프롬프트**: `AgentPrompts.syllabusStructure()`
+- **모델**: `extractor` / temperature 0.0 / grounding **✕** / `responseSchema` 강제
+- **출력 스키마**: `{ syllabus: [{step, topic, objective}] }`
+
+```
+아래는 교수설계자가 작성한 커리큘럼 초안이다.
+초안에 기술된 단계들을 그대로 추출하여 JSON으로 변환하라.
+
+[커리큘럼 초안]
+{draft}
+
+[변환 규칙]
+1) 초안에 있는 단계만 추출하라. 단계를 추가·삭제·재해석하지 마라.
+2) 각 단계의 step(번호), topic(소주제), objective(학습목표)를 채워라.
+3) 참조 자료 목록 등 단계가 아닌 내용은 무시하라.
 
 [출력 규칙]
 - 반드시 JSON만 출력하라.
-- syllabus와 theories 필드를 모두 포함하라.
 ```
 
 ---
 
 ## 4. Step Progress Evaluator (단계 진행 평가자)
 
-- **파일**: `lib/services/step_progress_service.dart`
-- **역할**: in_class 튜터 턴 종료 후, 현재 단계 학습목표 달성 여부를 판정하는 불리언 신호 생성. **실제 단계 전진은 `ChatController`가 단조 전진 규칙으로 수행** ("앱이 판단, LLM은 생성만").
-- **모델**: `gemini-2.5-flash` / temperature 0.0 / JSON 출력
+- **파일**: `lib/services/step_progress_service.dart` · `evaluate()`
+- **프롬프트**: `AgentPrompts.stepProgress()`
+- **역할**: in_class 튜터 턴 종료 후, 현재 단계 학습목표 달성 여부를 판정하는 **불리언 신호만** 생성. 실제 단계 전진은 `ChatController`가 단조 전진 규칙으로 수행 ("앱이 판단, LLM은 생성만")
+- **모델**: `extractor` / temperature 0.0 / JSON 출력
 - **출력 스키마**: `{ step_completed: bool, confidence: 0.0~1.0 }`
+- **입력**: 현재 `Step`(topic + objective) + 최근 6턴 히스토리
+- **실패 시**: `{false, 0.0}`으로 폴백하고 수업 흐름을 막지 않음 (graceful degradation)
+
+### 앱 측 처리 (`chat_provider.dart:781-795`)
+
+| 조건 | 동작 |
+|------|------|
+| `step_completed && confidence >= 0.6 && isLastStep` | `markCourseCompleted()` → 다음 발화는 Analyst로 |
+| `step_completed && confidence >= 0.6` | `setCurrentStep(index + 1)` (단조 증가, 역행 없음) |
+| 그 외 | 현재 단계 유지 |
 
 ### 프롬프트
 
@@ -309,13 +411,27 @@ explicit_fields는 "사용자가 그 정보를 말로 직접 진술했는가"만
 
 ---
 
-## 참고: 프롬프트가 없는 보조 서비스
+## 부록: 이중 게이트 패턴
 
-LLM 프롬프트는 없지만 에이전트에 데이터를 공급하는 서비스:
+세 지점이 **서로 다른 두 축을 모두 요구**하는 동일한 패턴을 쓴다.
+축 하나만 보면 모델이 추론한 값을 근거 있는 값으로 잘못 보고할 때 그대로 통과하기 때문이다.
+
+| 지점 | 게이트 | 통과 실패 시 |
+|------|--------|--------------|
+| Analyst 필드 추출 | `explicit_fields[f] && field_confidence[f] >= 0.6` | 해당 필드 `null` → 다시 묻는다 |
+| Feedback 재설계 | `needs_redesign && explicit_change` | 무시하고 로그만 |
+| 단계 전진 | `step_completed && confidence >= 0.6` | 현재 단계 유지 |
+
+---
+
+## 부록: 프롬프트가 없는 보조 서비스
+
+LLM 프롬프트는 없지만 에이전트 실행을 지탱하는 서비스:
 
 | 서비스 | 파일 | 역할 |
 |--------|------|------|
-| Gemini Service | `gemini_service.dart` | Vertex AI 스트리밍 통신 래퍼 (Tutor 응답 송출) |
-| RAG Service | `rag_service.dart` | 교수설계 이론 검색(RAG) → `ResourceCache.instructionalTheories` |
-| Wikidata Client | `wikidata_client.dart` | 주제 개념 자료 수집 → `ResourceCache.learningResources` |
-| Session Export | `session_export_service.dart` | 세션 로그 내보내기 |
+| Gemini Service | `gemini_service.dart` | 학습자 대면 스트리밍 래퍼. **양 조건 공용** — `systemInstruction`이 있으면 처치군 Tutor, `null`이면 대조군 순수 모델. grounding 상시 활성 + `onGrounding` 콜백 |
+| Session Export | `session_export_service.dart` | 세션 메시지 + 상태 변화 타임라인을 JSON으로 내보내기 |
+
+> 이전 버전의 `rag_service.dart`(교수설계 이론 RAG)와 `wikidata_client.dart`(주제 개념 수집)는
+> 확정 실험설계(260624)의 grounding 전환으로 **제거**되었다. `ResourceCache`도 함께 폐기되었다.

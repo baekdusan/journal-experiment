@@ -1,51 +1,246 @@
 # System Flowchart
 
-## ADDIE 모델 기반 적응형 학습 튜터 시스템 흐름도
+ADDIE 모델 기반 적응형 학습 튜터 시스템의 처리 흐름.
 
-### 현재 버전 (v1.0 - Web Search 없음)
+**적용 범위**: 이 문서는 **처치군(treatment)** 의 구조화 오케스트레이션을 기술한다.
+대조군(control)은 라우팅이 없는 단일 호출이므로 [대조군](#대조군-control) 절에 한 문단으로 정리한다.
 
-```mermaid
-flowchart TD
-    Start([사용자 Query]) --> ReadyCheck{isLearnerProfileFilled<br/>AND isDesignFilled?}
-
-    %% 준비 안됨 경로
-    ReadyCheck -->|false| Analyst[Analyst Agent<br/>정보 수집]
-    Analyst --> ProfileUpdate[LearnerProfile 업데이트]
-    ProfileUpdate --> MandatoryCheck{isLearnerProfileFilled?}
-    MandatoryCheck -->|true| DesignStart[Syllabus Designer<br/>커리큘럼 생성]
-    MandatoryCheck -->|false| Response1([Analyst 응답 반환])
-
-    %% 준비됨 경로
-    ReadyCheck -->|true| IntentClassifier[Intent Classifier<br/>의도 분류]
-
-    IntentClassifier -->|inClass| Tutor[Tutor Agent<br/>스트리밍 수업]
-    Tutor --> Response2([Tutor 응답 반환])
-
-    IntentClassifier -->|outOfClass| Feedback[Feedback Agent<br/>피드백 처리]
-    Feedback --> RedesignCheck{needsRedesign<br/>AND explicitChange?}
-    RedesignCheck -->|true| DesignStart
-    RedesignCheck -->|false| ExplicitCheck{explicitChange<br/>== true?}
-    ExplicitCheck -->|true| ProfileUpdate2["LearnerProfile 업데이트<br/>(level/tone만)"]
-    ExplicitCheck -->|false| Response3([Feedback 응답 반환])
-    ProfileUpdate2 --> Response3
-
-    %% 설계 완료 후 자동 수업 시작
-    DesignStart --> DesignComplete[InstructionalDesign 업데이트]
-    DesignComplete -->|자동 실행| Tutor
-
-    %% 스타일링
-    classDef decisionStyle fill:#FFE6E6,stroke:#FF6B6B,stroke-width:2px
-    classDef processStyle fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
-    classDef stateStyle fill:#E6FFE6,stroke:#52C41A,stroke-width:2px
-
-    class ReadyCheck,MandatoryCheck,RedesignCheck,ExplicitCheck decisionStyle
-    class Analyst,IntentClassifier,Tutor,Feedback,DesignStart processStyle
-    class Start,Response1,Response2,Response3,ProfileUpdate,ProfileUpdate2,DesignComplete stateStyle
-```
+**자료 취득 방식**: 확정 실험설계(260624)에 따라 로컬 캐시(RAG/Wikidata)는 폐기되었다.
+자료는 `Tool.googleSearch()` grounding으로 **호출 시점에** 취득하며,
+검색을 가진 지점은 **Syllabus Designer 1단계**와 **학습자 대면 스트리밍** 둘뿐이다.
 
 ---
 
-## State 구조 및 조건 플래그 (v1.0)
+## 논문용 축약도 (Figure)
+
+논문 Figure에 싣는 버전. **한 턴 안에서 어떤 에이전트가 어떤 순서로 도는가**만 남기고,
+세션 수준 가드(중복 요청 차단·수업 완료 후 재시작)와 검색 표기는 캡션으로 뺀다.
+아래 [상세 흐름](#처치군-전체-흐름-treatment)과 같은 코드를 기술하되 해상도만 다르다.
+
+```mermaid
+flowchart LR
+    Q([Query]) --> Ready{"isLearnerProfileFilled?<br/>&& isDesignFilled?"}
+
+    Ready -->|True| Intent["Intent Classifier Agent"]
+    Ready -->|False| Analyst["Analyst Agent"]
+
+    Intent -->|in class| Tutor["Tutor Agent"]
+    Intent -->|out of class| FB["Feedback Agent"]
+
+    FB --> RD{"needsRedesign<br/>&& explicitChange?"}
+    RD ==>|True| Designer["Syllabus Designer Agent"]
+    RD -->|False| EX{"explicitChange<br/>== true?"}
+    EX ==>|True| R([Response])
+    EX -->|False| R
+
+    Analyst ==> MC{"isLearnerProfileFilled?"}
+    MC -->|True| Designer
+    MC -->|False| R
+
+    Designer ==> Tutor
+    Tutor --> R
+    Tutor --> SP["Step Progress Agent"]
+
+    classDef agent fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
+    classDef dec fill:#F0F0F0,stroke:#888,stroke-width:1px
+    classDef term fill:#FFF9C4,stroke:#FBC02D,stroke-width:2px
+    class Analyst,Intent,Tutor,FB,Designer,SP agent
+    class Ready,MC,RD,EX dec
+    class Q,R term
+```
+
+### 캡션
+
+> 처치군의 단일 턴 처리 흐름. 초록 엣지는 학습 상태(`LearnerProfile` / `InstructionalDesign` /
+> `currentStepIndex`) 변경을 동반하는 전이를 나타낸다. Syllabus Designer와 Tutor Agent는
+> Google Search grounding으로 자료를 취득하며, 이는 대조군도 공유하는 통제 변인이다.
+> Step Progress Agent는 in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정하여
+> 진행 단계를 갱신한다. 세션 수준 가드(중복 요청 차단, 수업 완료 후 재시작)는 도식에서 생략했다.
+
+### 색 규칙이 갈리는 지점 (검토용)
+
+Figure를 다시 그릴 때 틀리기 쉬운 자리들이다.
+
+| 엣지 | 색 | 이유 |
+|------|-----|------|
+| `Analyst → isLearnerProfileFilled?` | **상태 변경** | Analyst 실행 후 `updateFromExtractedInfo`가 **무조건** 호출된다 |
+| `Feedback Agent → needsRedesign?` | 일반 | Feedback 호출 자체는 JSON 반환만. 프로필 갱신은 `explicitChange`가 참일 때만 뒤에서 일어난다 |
+| `needsRedesign && explicitChange? → True` | **상태 변경** | 이 경로는 `explicitChange`가 반드시 참 → 프로필 갱신 + 재설계 |
+| `isLearnerProfileFilled? → True` | 일반 | 프로필 갱신은 직전 Analyst 엣지에서 이미 표시됨 |
+| `Tutor → Step Progress Agent` | 일반 | Tutor는 상태를 바꾸지 않는다. 판정도 Tutor가 아닌 **별도 LLM 호출**이 한다 |
+
+---
+
+## 처치군 전체 흐름 (treatment)
+
+```mermaid
+flowchart LR
+    Q([Query]) --> G1{isProcessing?}
+    G1 -->|true| DROP[["입력 무시"]]
+    G1 -->|false| G2{isCourseCompleted?}
+    G2 -->|true| Analyst
+    G2 -->|false| Ready{"isLearnerProfileFilled?<br/>&& isDesignFilled?"}
+
+    Ready -->|true| Intent["Intent Classifier Agent"]
+    Ready -->|false| Analyst["Analyst Agent"]
+
+    %% ---- in class ----
+    Intent -->|in class| Tutor["Tutor Agent 🔍<br/>(스트리밍)"]
+    Tutor --> R([Response])
+    Tutor ==> SP["StepProgress Agent"]
+    SP --> SPC{"step_completed<br/>&& confidence ≥ 0.6?"}
+    SPC -->|"true, 마지막 단계"| Done["isCourseCompleted = true"]
+    SPC -->|"true, 그 외"| Adv["currentStepIndex += 1"]
+    SPC -->|false| Keep["현재 단계 유지"]
+
+    %% ---- out of class ----
+    Intent -->|out of class| FB["Feedback Agent"]
+    FB --> R
+    FB ==> EX{"explicitChange<br/>== true?"}
+    EX -->|true| PU["LearnerProfile 업데이트<br/>(level / tone)"]
+    EX -->|false| IGN["무시 (잡담)"]
+    PU --> RD{"needsRedesign<br/>&& explicitChange?"}
+    RD -->|true| D1
+    RD -->|false| R
+
+    %% ---- analyst → design ----
+    Analyst ==> MC{"isLearnerProfileFilled?<br/>(이중 게이트 통과분 반영)"}
+    MC -->|false| R
+    MC -.->|"true (백그라운드)"| D1["Syllabus Designer ①<br/>검색 조사 🔍"]
+    D1 --> D2["Syllabus Designer ②<br/>JSON 구조화"]
+    D2 ==>|"setSyllabus → 자동 수업 시작"| Tutor
+
+    Done -.->|다음 Query| G2
+
+    classDef agent fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
+    classDef dec fill:#F0F0F0,stroke:#888,stroke-width:1px
+    classDef term fill:#FFF9C4,stroke:#FBC02D,stroke-width:2px
+    class Analyst,Intent,Tutor,FB,D1,D2,SP agent
+    class G1,G2,Ready,MC,RD,EX,SPC dec
+    class Q,R term
+```
+
+### 범례
+
+| 표기 | 의미 |
+|------|------|
+| 실선 `→` | 일반 흐름 |
+| 굵은 실선 `⇒` | **상태 변경**을 동반하는 흐름 (`LearningState` 갱신) |
+| 점선 `-.->` | **백그라운드 병렬 실행** (`Future(...)`, UI 논블로킹) |
+| 🔍 | `Tool.googleSearch()` grounding 활성 |
+| 파란 사각형 | LLM Micro-Agent |
+| 회색 마름모 | **앱**이 판단하는 분기 (LLM 아님) |
+
+> 검색은 독립 에이전트가 아니라 두 호출에 붙은 **도구**다.
+> Intent / Analyst / Feedback / StepProgress는 검색 없는 JSON 추출기다.
+
+---
+
+## 라우팅 상세
+
+### 진입 가드 (`ChatController._sendMessageImpl`)
+
+라우팅은 위에서 아래 순서로 평가되며, 먼저 걸리는 조건에서 종료한다.
+
+| # | 조건 | 동작 | 위치 |
+|---|------|------|------|
+| 0 | `isProcessing` | 입력 무시 (LLM 호출 중복 방지) | [chat_provider.dart:251](lib/providers/chat_provider.dart#L251) |
+| 1 | `ExperimentConfig.isControl` | `_runFreeformFlow` → 이후 전부 건너뜀 | [chat_provider.dart:304](lib/providers/chat_provider.dart#L304) |
+| 2 | `isDesigning` | 입력 무시 (설계 중 중복 요청 방지) | [chat_provider.dart:332](lib/providers/chat_provider.dart#L332) |
+| 3 | `isCourseCompleted` | `_runAnalystFlow(forceAnalyst: true)` — 새 학습 시작 | [chat_provider.dart:337](lib/providers/chat_provider.dart#L337) |
+| 4 | `!(isLearnerProfileFilled && isDesignFilled)` | `_runAnalystFlow` — 정보 수집 | [chat_provider.dart:343](lib/providers/chat_provider.dart#L343) |
+| 5 | (위 전부 통과) | Intent 분류 → Tutor / Feedback | [chat_provider.dart:351](lib/providers/chat_provider.dart#L351) |
+
+`isProcessing`은 백그라운드 설계와 이어지는 자동 Tutor 스트리밍까지 덮는다.
+`_activeCount` 카운터로 `_enter`/`_exit`을 짝지어, `sendMessage`가 먼저 반환해도 플래그가 유지된다
+([chat_provider.dart:202-228](lib/providers/chat_provider.dart#L202-L228)).
+
+### Analyst Flow 내부 재분기
+
+`_runAnalystFlow`는 진입 직후 상태를 한 번 더 보고 다른 Flow로 넘긴다
+([chat_provider.dart:431-444](lib/providers/chat_provider.dart#L431-L444)):
+
+| 상태 | 동작 |
+|------|------|
+| 프로필 O + 설계 O | → `_runFeedbackFlow`로 전환 |
+| 프로필 O + 설계 X | → 곧장 `_startSyllabusDesign` |
+| 그 외 | Analyst Agent 실행 (정보 추출) |
+
+### 설계 트리거 조건
+
+Analyst 실행 후 설계를 시작하는 조건은 단순한 `isLearnerProfileFilled`가 아니다
+([chat_provider.dart:500-504](lib/providers/chat_provider.dart#L500-L504)):
+
+```dart
+shouldTriggerDesign =
+    updated.learnerProfile.isLearnerProfileFilled &&
+    !updated.instructionalDesign.isDesignFilled &&
+    (forceAnalyst || !wasMandatory);   // 이번 턴에 처음 채워졌을 때만
+```
+
+`!wasMandatory` 조건이 있어, 이미 프로필이 차 있던 턴에는 설계가 중복 실행되지 않는다.
+
+---
+
+## Micro-Agent 6종
+
+| Agent | 역할 | 모델 | 검색 | 출력 |
+|-------|------|------|------|------|
+| Intent Classifier | 수업 내/외 분류 | `AiModels.extractor` | ✕ | `{intent}` |
+| Analyst | 프로필 정보 수집 | `AiModels.extractor` | ✕ | `{extracted_info, explicit_fields, field_confidence, response}` |
+| Feedback | 피드백·재설계 요청 처리 | `AiModels.extractor` | ✕ | `{profile_update, response, needs_redesign, explicit_change, redesign_request}` |
+| Syllabus Designer ① | 검색 조사 + 초안 | `AiModels.designer` | **O** | 자연어 초안 + grounding 메타데이터 |
+| Syllabus Designer ② | 초안 → 구조화 | `AiModels.extractor` | ✕ | `{syllabus: [Step]}` |
+| StepProgress | 단계 달성 판정 | `AiModels.extractor` | ✕ | `{step_completed, confidence}` |
+| Tutor | 학습자 대면 수업 | `AiModels.tutor` | **O** | `Stream<String>` + `onGrounding` 콜백 |
+
+### Designer를 2단계로 나눈 이유
+
+Gemini는 `Tool.googleSearch()`와 `responseSchema`(JSON 강제)를 **한 호출에서 병용할 수 없다**.
+따라서 검색이 필요한 JSON 에이전트는 반드시 쪼개야 한다
+([syllabus_designer_service.dart:14-17](lib/services/syllabus_designer_service.dart#L14-L17)):
+
+1. **① 조사**: grounding ON, 자연어 출력 — 기존 커리큘럼·공인 시험 범위·튜토리얼 목차 조사
+2. **② 구조화**: grounding OFF, `responseSchema` 강제 — 초안을 `List<Step>`으로 변환
+
+①에서 발동한 `webSearchQueries`와 근거 소스는 `groundingUsed` 이벤트로 세션 로그에 남는다.
+
+---
+
+## 이중 게이트 패턴
+
+세 지점에서 **서로 다른 두 축을 모두 요구**하는 동일한 패턴을 쓴다.
+불린 플래그 하나만 보면 모델이 추론한 값을 "명시적"이라 잘못 보고할 때 그대로 통과하기 때문이다.
+
+| 지점 | 게이트 | 위치 |
+|------|--------|------|
+| Analyst 필드 추출 | `explicit_fields[f] && field_confidence[f] >= 0.6` | [conversational_agent_service.dart:204-208](lib/services/conversational_agent_service.dart#L204-L208) |
+| Feedback 재설계 | `needs_redesign && explicit_change` | [chat_provider.dart:861](lib/providers/chat_provider.dart#L861) |
+| 단계 전진 | `step_completed && confidence >= 0.6` | [chat_provider.dart:781](lib/providers/chat_provider.dart#L781) |
+
+`needsRedesign == true && explicitChange == false`는 LLM 오판으로 간주해 무시하고 로그만 남긴다
+(예: "이거 너무 어려운데요?" → 재설계 필요로 착각).
+
+---
+
+## 단계 진행 판정
+
+in-class 튜터 턴이 끝날 때마다 실행된다 ([chat_provider.dart:759-800](lib/providers/chat_provider.dart#L759-L800)).
+
+- **입력**: 현재 `Step`(topic + objective) + 최근 6턴 히스토리
+- **출력**: `{step_completed, confidence}` — 불리언 신호만
+- **판단**: 단계 전진/완료 처리는 **앱**이 한다 ("앱이 판단, LLM은 생성만")
+  - `completed && conf ≥ 0.6 && isLastStep` → `markCourseCompleted()`
+  - `completed && conf ≥ 0.6` → `setCurrentStep(index + 1)` (단조 증가)
+  - 그 외 → 현재 단계 유지
+- **실패 시**: 예외를 삼키고 수업 흐름을 막지 않는다 (graceful degradation)
+
+`isCourseCompleted`가 켜지면 다음 Query는 진입 가드 #3에 걸려 Analyst로 돌아가고,
+새 학습 주제를 수집하는 순환이 닫힌다.
+
+---
+
+## 상태 구조
 
 ```mermaid
 classDiagram
@@ -55,7 +250,11 @@ classDiagram
         +bool isDesigning
         +bool showDesignReady
         +bool isCourseCompleted
+        +int currentStepIndex
         +DateTime updatedAt
+        +Step? currentStep()
+        +bool isLastStep()
+        +String progressLabel()
     }
 
     class LearnerProfile {
@@ -82,426 +281,76 @@ classDiagram
     LearningState --> InstructionalDesign
     InstructionalDesign --> Step
 
-    note for LearnerProfile "isLearnerProfileFilled = <br/>subject != null AND<br/>goal != null AND<br/>level != null AND<br/>tonePreference != null"
+    note for LearnerProfile "isLearnerProfileFilled = <br/>subject && goal && level<br/><br/>tonePreference는 필수가 아니다.<br/>미정이면 기본 말투(kind)로 진행."
 
-    note for InstructionalDesign "isDesignFilled = <br/>syllabus.isNotEmpty"
+    note for InstructionalDesign "isDesignFilled = syllabus.isNotEmpty"
 ```
 
-### 조건 플래그 계산 로직
+> 자료 캐시(`ResourceCache`)는 존재하지 않는다. 구버전 `SharedPreferences`에 남은
+> `resourceCache` 키는 역직렬화 시 무시된다 ([learning_state.dart:86](lib/models/learning_state.dart#L86)).
+
+### 조건 플래그
 
 | 플래그 | 조건식 | 위치 | 의미 |
 |--------|--------|------|------|
-| **isLearnerProfileFilled** | `subject != null && goal != null && level != null && tonePreference != null` | [learner_profile.dart:35](lib/models/learner_profile.dart#L35) | 학습자 프로필 4가지 필수 정보 모두 완성 |
-| **isDesignFilled** | `syllabus.isNotEmpty` | [instructional_design.dart:48](lib/models/instructional_design.dart#L48) | 커리큘럼(Syllabus) 생성 완료 |
-| **isDesigning** | 수동 설정, true일 경우에 입력창 disabled | [learning_state.dart:7](lib/models/learning_state.dart#L7) | 커리큘럼 생성 중 (중복 방지용) |
-| **showDesignReady** | 수동 설정 | [learning_state.dart:8](lib/models/learning_state.dart#L8) | 설계 완료 UI 표시 플래그 |
-| **isCourseCompleted** | 수동 설정 | [learning_state.dart:9](lib/models/learning_state.dart#L9) | 학습 완료 여부 (새 학습 시작 판단용) |
+| **isLearnerProfileFilled** | `subject && goal && level` (모두 non-empty) | [learner_profile.dart:34](lib/models/learner_profile.dart#L34) | 설계에 필요한 최소 프로필 확보 |
+| **isDesignFilled** | `syllabus.isNotEmpty` | [instructional_design.dart:48](lib/models/instructional_design.dart#L48) | 커리큘럼 생성 완료 |
+| **isLastStep** | `totalSteps > 0 && currentStepIndex >= totalSteps - 1` | [learning_state.dart:40](lib/models/learning_state.dart#L40) | 마지막 단계 도달 |
+| **isDesigning** | 수동 설정 | [learning_state.dart:12](lib/models/learning_state.dart#L12) | 설계 진행 중 (중복 방지) |
+| **showDesignReady** | 수동 설정 | [learning_state.dart:13](lib/models/learning_state.dart#L13) | 설계 완료 안내 플래그 (Tutor 첫 턴에 해제) |
+| **isCourseCompleted** | StepProgress 판정으로 설정 | [learning_state.dart:14](lib/models/learning_state.dart#L14) | 학습 완료 (새 학습 시작 판단용) |
+| **isProcessing** | `_activeCount > 0` (휘발성, 영속화 안 함) | [chat_provider.dart:80](lib/providers/chat_provider.dart#L80) | LLM 호출 진행 중 |
 
 ---
 
-### 현재 버전 (v2.0 - Wikidata + RAG 통합)
+## 세션 로깅 (실험 데이터)
+
+상태 변화는 `StateChangeEvent` 타임라인으로 세션에 기록되어 JSON으로 내보내진다
+([state_change_event.dart:77-100](lib/models/state_change_event.dart#L77-L100)).
+
+| `StateChangeType` | 기록 시점 |
+|-------------------|-----------|
+| `profileUpdated` | Analyst가 프로필 필드를 갱신 |
+| `syllabusGenerationStarted` / `syllabusGenerated` | 설계 시작 / 완료 |
+| `redesignRequested` | Feedback이 재설계를 위임 |
+| `stepAdvanced` | 단계 전진 |
+| `courseCompleted` | 마지막 단계 완료 |
+| `groundingUsed` | 검색 발동 (`source`: `tutor` / `designer` / `freeform`, 검색어·소스 포함) |
+
+`groundingUsed`는 확정 실험설계 §6-4의 조절변수 **'자료 검색 빈도'** 산출에 쓰인다.
+
+---
+
+## 대조군 (control)
+
+`?condition=control`로 진입하며, 위 라우팅을 **전부 건너뛴다**
+([chat_provider.dart:678-747](lib/providers/chat_provider.dart#L678-L747)).
 
 ```mermaid
-flowchart TD
-    Start([사용자 Query]) --> ReadyCheck{isLearnerProfileFilled<br/>AND isDesignFilled?}
-
-    %% 준비 안됨 경로
-    ReadyCheck -->|false| Analyst[Analyst Agent<br/>정보 수집]
-    Analyst --> ProfileUpdate[LearnerProfile 업데이트]
-
-    %% 백그라운드 리소스 수집 (subject 추출 시)
-    ProfileUpdate --> SubjectCheck{subject<br/>!= null?}
-    SubjectCheck -->|true| DataCheck{isResourceReady?}
-    DataCheck ---|false| ResourceFetch["Wikidata + RAG Fetch<br/>(백그라운드 실행)"]
-    DataCheck -->|true| MandatoryCheck
-    SubjectCheck -->|false| Response1([Analyst 응답 반환])
-    ResourceFetch -.-> ResourceCache[(ResourceCache)]
-    ResourceFetch --> MandatoryCheck
-
-    MandatoryCheck{isLearnerProfileFilled?}
-    MandatoryCheck -->|true| DesignStart[Syllabus Designer<br/>syllabus + theories 생성]
-    MandatoryCheck -->|false| Response1
-
-    %% 준비됨 경로
-    ReadyCheck -->|true| IntentClassifier[Intent Classifier<br/>의도 분류]
-
-    IntentClassifier -->|inClass| Tutor[Tutor Agent<br/>스트리밍 수업 + 리소스 참고]
-    Tutor --> Response2([Tutor 응답 반환])
-
-    IntentClassifier -->|outOfClass| Feedback[Feedback Agent<br/>피드백 처리]
-    Feedback --> RedesignCheck{needsRedesign<br/>AND explicitChange?}
-    RedesignCheck -->|true| DesignStart
-    RedesignCheck -->|false| ExplicitCheck{explicitChange<br/>== true?}
-    ExplicitCheck -->|true| ProfileUpdate2["LearnerProfile 업데이트<br/>(tone만)"]
-    ExplicitCheck -->|false| Response3([Feedback 응답 반환])
-    ProfileUpdate2 --> Response3
-
-    %% 설계 시 캐시 활용 (입력: RAG theories)
-    ResourceCache -->|입력: RAG theories| DesignStart
-    ResourceCache -.-> Tutor
-
-    %% 설계 완료 후 상태 업데이트 (출력: 적용된 theories)
-    DesignStart -->|syllabus| DesignComplete[InstructionalDesign 업데이트]
-    DesignStart -->|theories| ResourceCache
-    DesignComplete -->|자동 실행| Tutor
-
-    %% 스타일링
-    classDef decisionStyle fill:#FFE6E6,stroke:#FF6B6B,stroke-width:2px
-    classDef processStyle fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
-    classDef stateStyle fill:#E6FFE6,stroke:#52C41A,stroke-width:2px
-    classDef backgroundStyle fill:#FFF4E6,stroke:#FF9800,stroke-width:2px,stroke-dasharray: 5 5
-    classDef cacheStyle fill:#E8EAF6,stroke:#3F51B5,stroke-width:2px
-
-    class ReadyCheck,MandatoryCheck,RedesignCheck,DataCheck,SubjectCheck,ExplicitCheck decisionStyle
-    class Analyst,IntentClassifier,Tutor,Feedback,DesignStart processStyle
-    class Start,Response1,Response2,Response3,ProfileUpdate,ProfileUpdate2,DesignComplete stateStyle
-    class ResourceFetch backgroundStyle
-    class ResourceCache cacheStyle
+flowchart LR
+    Q([Query]) --> F["순수 모델 🔍<br/>(systemInstruction 없음)"]
+    F --> R([Response])
+    classDef agent fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
+    class F agent
 ```
+
+양 조건이 공유하는 **통제 변인** (`GeminiService` 공용):
+
+- 모델: `AiModels.tutor`
+- `Tool.googleSearch()` grounding 상시 활성
+- 스트리밍 방식, 세션 전체 히스토리 전달
+
+**차이는 오직 하나** — 처치군은 매 턴 재빌드한 `systemInstruction`(현재 단계·프로필 주입)을 넘기고,
+대조군은 `null`을 넘겨 시스템 프롬프트 없는 순수 모델로 동작한다.
 
 ---
 
-## State 구조 및 조건 플래그 (v2.0 - Wikidata + RAG 통합)
+## 대화 메모리 정책
 
-```mermaid
-classDiagram
-    class LearningState {
-        +LearnerProfile learnerProfile
-        +InstructionalDesign instructionalDesign
-        +ResourceCache resourceCache
-        +bool isDesigning
-        +bool showDesignReady
-        +bool isCourseCompleted
-        +DateTime updatedAt
-    }
+| 용도 | 범위 | 위치 |
+|------|------|------|
+| 학습자 대면 스트리밍 (양 조건) | **세션 전체 히스토리** | [`_recentMessages`](lib/providers/chat_provider.dart#L1209) |
+| 판정용 에이전트 (StepProgress / Feedback) | 최근 **6턴** 윈도우 | [`_buildHistory`](lib/providers/chat_provider.dart#L1094) |
 
-    class LearnerProfile {
-        +String? subject
-        +String? goal
-        +LearnerLevel? level
-        +TonePreference? tonePreference
-        +bool isLearnerProfileFilled()
-    }
-
-    class InstructionalDesign {
-        +List~Step~ syllabus
-        +bool isDesignFilled()
-        +int totalSteps()
-    }
-
-    class ResourceCache {
-        +String? subject
-        +String sourceId
-        +List~LearningResource~ learningResources
-        +List~InstructionalTheory~ instructionalTheories
-        +DateTime? lastFetchedAt
-        +bool isResourceReady()
-    }
-
-    class LearningResource {
-        +String title
-        +String url
-        +String summary
-        +String resourceType
-    }
-
-    class InstructionalTheory {
-        +String theoryName
-        +String description
-        +String applicability
-        +List~SourceChunk~? rawChunks
-    }
-
-    class SourceChunk {
-        +int pageNumber
-        +String? sectionHeader
-        +String content
-    }
-
-    class Step {
-        +int step
-        +String topic
-        +String objective
-    }
-
-    LearningState --> LearnerProfile
-    LearningState --> InstructionalDesign
-    LearningState --> ResourceCache
-    InstructionalDesign --> Step
-    ResourceCache --> LearningResource
-    ResourceCache --> InstructionalTheory
-    InstructionalTheory --> SourceChunk
-
-    note for LearnerProfile "isLearnerProfileFilled = <br/>subject != null AND<br/>goal != null AND<br/>level != null AND<br/>tonePreference != null"
-
-    note for InstructionalDesign "isDesignFilled = <br/>syllabus.isNotEmpty"
-
-    note for ResourceCache "isResourceReady = <br/>learningResources.isNotEmpty AND <br/>instructionalTheories.isNotEmpty<br/><br/>instructionalTheories는<br/>RAG 입력 → Designer 출력으로<br/>2단계 변환됨"
-```
-
-### 조건 플래그 계산 로직 (v2.0)
-
-| 플래그 | 조건식 | 의미 |
-|--------|--------|------|
-| **isLearnerProfileFilled** | `subject != null && goal != null && level != null && tonePreference != null` | 학습자 프로필 4가지 필수 정보 모두 완성 |
-| **isDesignFilled** | `syllabus.isNotEmpty` | 커리큘럼(Syllabus) 생성 완료 |
-| **isResourceReady** | `learningResources.isNotEmpty && instructionalTheories.isNotEmpty` | Wikidata + RAG 리소스 수집 완료 |
-| **isDesigning** | 수동 설정, true일 경우에 입력창 disabled | 커리큘럼 생성 중 (중복 방지용) |
-| **showDesignReady** | 수동 설정 | 설계 완료 UI 표시 플래그 |
-| **isCourseCompleted** | 수동 설정 | 학습 완료 여부 (새 학습 시작 판단용) |
-
-### 데이터 모델 상세 설명
-
-#### ResourceCache (리소스 캐시)
-```dart
-class ResourceCache {
-  final String? subject;                          // 검색한 주제
-  final String sourceId;                          // 캐시 식별자
-  final List<LearningResource> learningResources; // Wikidata에서 수집된 학습 자료
-  final List<InstructionalTheory> instructionalTheories; // 교수설계이론 (2단계 변환)
-  final DateTime? lastFetchedAt;                  // 마지막 검색 시간
-
-  bool get isResourceReady =>
-    learningResources.isNotEmpty && instructionalTheories.isNotEmpty;
-}
-```
-
-**instructionalTheories의 2단계 변환:**
-1. **RAG Fetch 직후**: PDF에서 추출한 이론들 (10개) → applicability 없음
-2. **Designer 실행 후**: 실제 적용한 이론들 (최대 3개) → applicability 추가 → **덮어쓰기**
-
-#### LearningResource (학습 자료)
-```dart
-class LearningResource {
-  final String title;        // 자료 제목 (예: "Machine learning")
-  final String url;          // 자료 URL (예: Wikidata 링크)
-  final String summary;      // 자료 요약 (Wikidata description)
-  final String resourceType; // 자료 유형 (예: "wikidata_concept")
-}
-```
-
-#### InstructionalTheory (교수설계이론)
-```dart
-class InstructionalTheory {
-  final String theoryName;             // 이론 이름 (예: Scaffolding, Mastery Learning)
-  final String description;            // 이론 설명 (LLM이 재해석한 내용)
-  final String applicability;          // 이 커리큘럼에 어떻게 적용했는지 (SyllabusDesigner가 생성)
-  final List<SourceChunk>? rawChunks;  // RAG PDF 원본 chunk들
-}
-```
-
-**InstructionalTheory의 2단계 변환:**
-1. **RAG 단계 (입력)**: PDF에서 추출한 이론들 → `rawChunks` 포함, `applicability`는 비어있거나 일반적 설명
-2. **Designer 단계 (출력)**: 실제 적용한 이론들만 선택 (최대 3개) → `applicability`에 **"이 커리큘럼에 어떻게 적용했는지"** 구체적 설명 추가
-
-#### SourceChunk (RAG 원본 청크)
-```dart
-class SourceChunk {
-  final int pageNumber;        // PDF 페이지 번호
-  final String? sectionHeader; // 섹션 제목 (nullable)
-  final String content;        // 원문 내용
-}
-```
-
-#### InstructionalDesign (교수설계)
-```dart
-class InstructionalDesign {
-  final List<Step> syllabus;  // 학습 단계들
-
-  bool get isDesignFilled => syllabus.isNotEmpty;
-  int get totalSteps => syllabus.length;
-}
-```
-
-#### Step (학습 단계)
-```dart
-class Step {
-  final int step;          // 단계 번호
-  final String topic;      // 주제
-  final String objective;  // 학습 목표
-}
-```
-
-#### 역할 분리: Syllabus Designer vs Tutor Agent
-
-**Syllabus Designer의 역할 (설계):**
-1. **입력**:
-   - `LearnerProfile`: subject, goal, level, tonePreference
-   - `ResourceCache.learningResources`: Wikidata 학습 자료
-   - `ResourceCache.instructionalTheories`: RAG에서 추출한 이론들 (참고용)
-2. **처리**:
-   - 커리큘럼 설계 (syllabus 생성)
-   - RAG 이론 중 실제 적용한 이론만 선택 (최대 3개)
-   - 각 이론에 `applicability` 설명 작성 (이 커리큘럼에 어떻게 적용했는지)
-3. **출력**:
-   - `InstructionalDesign.syllabus`: 학습 단계 (Step 리스트)
-   - `ResourceCache.instructionalTheories`: **덮어쓰기** → 적용된 이론만 남김
-
-**Tutor Agent의 역할 (실행):**
-- **입력 정보**:
-  - `ResourceCache.learningResources`: Wikidata 학습 자료 (요약 + URL)
-  - `ResourceCache.instructionalTheories`: **Designer가 선택한** 적용된 이론 (이름 + applicability)
-  - `InstructionalDesign.syllabus`: 학습 로드맵
-  - `LearnerProfile.tonePreference`: 전달 스타일
-- **동작**: 설계된 커리큘럼대로 실행, 리소스 참고
-- **tone 조정**: 같은 내용을 어떤 말투로 전달할지
-
-**이 접근의 장점:**
-1. **명확한 책임 분리**: Designer는 설계 + 이론 선택, Tutor는 실행 + 리소스 참고
-2. **일관성**: 커리큘럼은 고정, Tutor는 실시간으로 리소스 활용
-3. **Token 효율**: Tutor는 요약된 리소스만 참고 (Wikidata summary, 적용된 이론 이름)
-4. **Transparency**: 사용자가 "원문 보기"로 RAG chunk 확인 가능
-5. **이론 필터링**: Designer가 10개 RAG 이론 → 3개 적용 이론으로 압축
-
----
-
-## 의사결정 노드 상세 설명
-
-### 1. `isLearnerProfileFilled && isDesignFilled?`
-- **위치**: [chat_provider.dart:245-246](lib/providers/chat_provider.dart#L245-L246)
-- **로직**: `learning.learnerProfile.isLearnerProfileFilled && learning.instructionalDesign.isDesignFilled`
-- **조건**:
-  - `isLearnerProfileFilled`: `subject != null && goal != null && level != null && tonePreference != null`
-  - `isDesignFilled`: `syllabus.isNotEmpty`
-- **true**: 수업 가능 상태 → Intent 분류
-- **false**: 정보 수집 필요 → Analyst Flow
-
-### 2. `subject != null?`
-- **위치**: [chat_provider.dart:378-379](lib/providers/chat_provider.dart#L378-L379) (Analyst Flow 내부)
-- **로직**: `result.subject != null` (이번 턴에 subject가 추출되었는지)
-- **목적**: 주제 추출 시 웹 검색 트리거 (향후 구현)
-- **true**: 백그라운드 Web Search 실행 (병렬) → 필수 정보 체크로 이동
-- **false**: subject 추출 안됨 → 필수 정보 체크로 이동
-
-### 3. `isLearnerProfileFilled?`
-- **위치**: [chat_provider.dart:396-400](lib/providers/chat_provider.dart#L396-L400) (Analyst Flow 내부)
-- **로직**: `updated.learnerProfile.isLearnerProfileFilled && !updated.instructionalDesign.isDesignFilled && (forceAnalyst || !wasMandatory)`
-- **실제 조건**: [learner_profile.dart:35](lib/models/learner_profile.dart#L35)
-  ```dart
-  isLearnerProfileFilled = subject != null && goal != null && level != null && tonePreference != null
-  ```
-- **목적**: 4가지 필수 정보 모두 완성 시 커리큘럼 생성 시작
-- **true**: 모든 정보 완성 → Syllabus Designer 시작
-- **false**: 하나라도 누락 → Analyst 응답 반환 (누락 정보 요청)
-- **예시**:
-  - subject=Python, goal=null → false → "어떤 목표가 있으신가요?"
-  - subject=Python, goal=웹개발, level=null → false → "현재 수준이 어떻게 되시나요?"
-  - subject=Python, goal=웹개발, level=beginner, tone=null → false → "어떤 말투를 선호하시나요?"
-  - subject=Python, goal=웹개발, level=beginner, tone=kind → true → 커리큘럼 생성
-
-### 4. Intent Classifier 분류
-- **위치**: [chat_provider.dart:253-258](lib/providers/chat_provider.dart#L253-L258)
-- **서비스**: `IntentClassifierService.classify()`
-- **로직**: 이전 튜터 메시지와 현재 사용자 발화를 분석
-- **inClass**: 수업 내 발화 → Tutor Flow (스트리밍)
-- **outOfClass**: 수업 외 발화 → Feedback Flow
-
-### 5. `needsRedesign && explicitChange?`
-- **위치**: [chat_provider.dart:585](lib/providers/chat_provider.dart#L585) (Feedback Flow 내부)
-- **로직**: `result.needsRedesign && result.explicitChange`
-- **조건**:
-  - `needsRedesign`: **subject/goal/level 변경**으로 재설계가 필요한지 Feedback Agent가 판단
-  - `explicitChange`: 명시적 변경 요청인지 (추측 방지)
-- **true**: 커리큘럼 재생성
-- **false**: 명시적 변경 체크로 이동
-- **재설계 대상**:
-  - **v1.0**: subject, goal 변경
-  - **v2.0**: subject, goal, **level** 변경
-    - subject 변경: "Python → JavaScript로 바꿔주세요"
-    - goal 변경: "웹개발 → 데이터분석으로 바꿔주세요"
-    - level 변경: "초보자 수준으로 다시 설명해주세요" (커리큘럼 순서/깊이 변경 필요)
-    - 순서 변경: "변수를 먼저 배우고 싶어요"
-- **재설계 제외**:
-  - tone 변경: Tutor가 실시간 반영 (말투만 변경, 커리큘럼 무관)
-- **오판 케이스**: `needsRedesign=true && explicitChange=false`는 LLM 오판으로 간주하여 무시 ([chat_provider.dart:602-605](lib/providers/chat_provider.dart#L602-L605))
-  - 예: "이거 너무 어려운데요?" → LLM이 재설계 필요하다고 착각할 수 있음
-
-### 6. `explicitChange == true?`
-- **위치**: [chat_provider.dart:573](lib/providers/chat_provider.dart#L573) (Feedback Flow 내부)
-- **로직**: `result.explicitChange`
-- **목적**: 명시적 변경 요청만 프로파일 업데이트 (추측 방지)
-- **true**: **tone 업데이트** 후 Feedback 응답 반환 (재설계 없음)
-- **false**: 잡담/감정 표현으로 간주, Feedback 응답만 반환
-- **v2.0에서의 처리**:
-  - tone만 변경: LearnerProfile 업데이트, Tutor가 다음 턴부터 새 tone으로 수업
-  - level 변경: `needsRedesign`으로 처리 (재설계 필요)
-- **예시**:
-  - "격식있게 말해주세요" → explicitChange=true, needsRedesign=false → tone 변경 → ProfileUpdate2
-  - "초보자 수준으로 바꿔주세요" → explicitChange=true, needsRedesign=true → level 변경 → 재설계
-  - "고마워요!" → explicitChange=false → 응답만 반환
-
----
-
-## 응답 주체 및 특징
-
-### 응답 반환 노드별 주체
-
-| 노드 | Agent | 응답 방식 | 위치 | 예시 |
-|------|-------|----------|------|------|
-| **Response1** | Analyst | JSON 추출 (비스트리밍) | [chat_provider.dart:359](lib/providers/chat_provider.dart#L359) | "Python을 배우고 싶으시군요! 구체적으로 어떤 목표가 있으신가요?" |
-| **Response2** | Tutor | 스트리밍 | [chat_provider.dart:471-486](lib/providers/chat_provider.dart#L471-L486) | "좋아요! 변수는 데이터를 저장하는 상자예요..." |
-| **Response3** | Feedback | JSON 추출 (비스트리밍) | [chat_provider.dart:562](lib/providers/chat_provider.dart#L562) | "알겠어요. 난이도를 낮춰서 설명할게요." |
-
-### Feedback Agent의 3가지 역할
-
-#### 1. 말투 변경 처리 (v2.0)
-```
-사용자: "격식있게 말해주세요."
-→ explicitChange: true
-→ needsRedesign: false
-→ tone: kind → formal
-→ 응답: "알겠습니다. 격식있게 말씀드리겠습니다."
-```
-
-#### 2. 재설계 요청 감지 및 위임
-```
-v1.0 - subject/goal 변경:
-사용자: "순서를 바꿔주세요. 변수를 먼저 배우고 싶어요."
-→ needsRedesign: true
-→ explicitChange: true
-→ Syllabus Designer에 재설계 위임
-
-v2.0 - subject/goal/level 변경:
-사용자: "초보자 수준으로 다시 가르쳐주세요."
-→ needsRedesign: true (커리큘럼 순서/깊이 변경 필요)
-→ explicitChange: true
-→ level: intermediate → beginner
-→ Syllabus Designer에 재설계 위임
-```
-
-#### 3. 잡담 필터링 (무시)
-```
-사용자: "고마워요!" / "재밌네요!"
-→ explicitChange: false
-→ needsRedesign: false
-→ 응답만 반환: "천만에요! 계속 진행해볼까요?"
-```
-
----
-
-## 주요 특징
-
-### 백그라운드 리소스 수집 (Wikidata + RAG)
-- **실행 시점**: Analyst Agent가 `subject`(학습 주제)를 추출하는 즉시
-- **병렬 처리**: 사용자 응답과 병렬로 실행되어 대기 시간 최소화
-- **수집 데이터**:
-  - **Wikidata**: 주제 개념 정보 (label, description, URL)
-  - **RAG (PDF)**: 교수설계 이론 chunk들 (content, pageNumber, sectionHeader)
-- **활용**:
-  - **Syllabus Designer**:
-    1. 입력으로 RAG theories (참고용 10개) 받음
-    2. 커리큘럼 생성 + 실제 적용한 이론 선택 (최대 3개)
-    3. 선택된 이론만 `applicability` 추가하여 ResourceCache에 덮어쓰기
-  - **Tutor Agent**: 튜터링 시 Wikidata 요약과 **Designer가 선택한** 이론 참고
-- **Transparency**: 사용자는 "목차 보기 > 적용된 교수설계론 > 원문 보기"로 RAG chunk 확인 가능
-
-### 노드 타입 설명
-- 🔴 **빨간 다이아몬드**: 의사결정 노드 (조건 분기)
-- 🔵 **파란 사각형**: 프로세스 노드 (Agent 실행)
-- 🟢 **초록 둥근 사각형**: 상태 노드 (입력/출력/상태 변경)
-- 🟠 **주황 점선 사각형**: 백그라운드 프로세스 (비동기)
-- 🟣 **보라 원통**: 캐시/저장소 (데이터 저장)
-
-### 화살표 타입
-- **실선 화살표** (→): 일반적인 동기 흐름
-- **점선 화살표** (-.->): 백그라운드/비동기 흐름
+30분 단일 세션이라 컨텍스트 부담이 작고, 윈도우 잘림으로 인한 선호·맥락 망각을 없애기 위한 결정이다.
+Gemini chat history는 user 메시지로 시작해야 하므로, 선두의 model 메시지는 제거하고 전달한다.

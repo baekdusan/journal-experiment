@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<title>AI 챗봇 및 실험 시스템 설명자료</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: 10.5pt; line-height: 1.6; color: #1a1a1a; max-width: 780px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 15pt; margin: 0 0 3px; }
+  h2 { font-size: 12pt; margin: 22px 0 8px; padding-bottom: 3px; border-bottom: 1.5px solid #333; }
+  .sub { color: #666; font-size: 9.5pt; margin-bottom: 16px; }
+  p.lead { margin: 0 0 12px; }
+  figure { margin: 10px 0 6px; page-break-inside: avoid; }
+  figcaption { font-size: 9pt; color: #444; margin-top: 7px; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 4px; font-size: 9.5pt; }
+  th, td { border: 1px solid #ccc; padding: 5px 9px; text-align: left; }
+  th { background: #f2f2f2; }
+  td.same { text-align: center; color: #555; }
+  .ph { border: 2px dashed #bbb; background: #fafafa; color: #888; padding: 46px 16px; text-align: center; font-size: 9pt; }
+  .todo { background: #fff8e1; border: 1px solid #e6c860; padding: 12px 16px; margin: 20px 0; font-size: 9.5pt; }
+
+  /* ===== 앱 화면 재현 (Gemini 웹앱 스타일) ===== */
+  .screen { border: 1px solid #dadce0; border-radius: 10px; background: #fff; overflow: hidden; position: relative; }
+  .titlebar { background: #f1f3f4; border-bottom: 1px solid #dadce0; padding: 6px 12px; font-size: 8pt; color: #5f6368; }
+  .thread { padding: 10px 0 6px; }
+  .row { display: flex; padding: 7px 20px; }
+  .row.user { justify-content: flex-end; }
+  .bubble { background: #F0F4F9; border-radius: 20px; padding: 10px 16px; font-size: 9.5pt;
+    line-height: 1.5; color: #1F1F1F; max-width: 76%; }
+  .ai-body { font-size: 9.5pt; line-height: 1.62; color: #1F1F1F; max-width: 94%; }
+  .ai-body p { margin: 0 0 9px; }
+  .ai-body ul, .ai-body ol { margin: 0 0 9px; padding-left: 20px; }
+  .ai-body li { margin-bottom: 3px; }
+  .ai-body .mdh { font-size: 10pt; font-weight: 600; margin: 12px 0 6px; }
+  .ai-body hr { border: 0; border-top: 1px solid #e1e3e1; margin: 10px 0; }
+  .ai-body blockquote { border-left: 3px solid #c4c7c5; padding-left: 12px; margin: 0 0 9px; color: #575B5F; }
+  .ai-body code { background: #F0F4F9; font-family: Menlo, monospace; font-size: 8.5pt; padding: 1px 4px; border-radius: 3px; }
+  .composer { padding: 10px 20px 14px; }
+  .pill { background: #F0F4F9; border-radius: 999px; padding: 11px 18px; font-size: 9.5pt; color: #70757a; }
+  .faded .thread { max-height: 500px; overflow: hidden; }
+  .fade { height: 70px; margin-top: -70px; background: linear-gradient(to bottom, rgba(255,255,255,0), #fff); }
+  @media print { .no-print { display: none !important; } body { padding: 0; } }
+</style></head><body>
+
+<h1>AI 챗봇 및 실험 시스템 설명자료</h1>
+<div class="sub">피험자 간 2조건 설계 · 연구수행과정 보완자료</div>
+
+<p class="lead">
+참가자는 배포받은 링크로 웹 브라우저에 접속하여 AI 튜터와 대화하며 학습한다. 설치·회원가입·로그인 절차는 없다.
+두 조건의 <strong>화면 구성과 조작 방식은 완전히 동일</strong>하며, 참가자는 자신이 어느 조건에 배정되었는지 알 수 없다.
+아래는 실제 세션에서 수집된 대화 기록이다.
+</p>
+
+<h2>1. 조건 A (처치군) — 실제 화면</h2>
+<figure>
+<div class="screen"><div class="thread"><div class="row user"><div class="bubble">하이루</div></div>
+<div class="row ai"><div class="ai-body"><p>하이루! 만나서 반가워요. 어떤 것을 배우고 싶으신가요?</p></div></div>
+<div class="row user"><div class="bubble">블록체인에 대해 배우고싶어. 자격증 문제를 풀려고 하는데, 4지선다고, 한 20문제 정도에 대해 풀어서 맞춰야 해.</div></div>
+<div class="row ai"><div class="ai-body"><p>블록체인에 대해 배우고 싶으시고, 자격증 문제 20개를 맞춰서 합격하는 것이 목표시군요! 혹시 블록체인에 대해 어느 정도 알고 계신가요? (예: 완전 초보, 어느 정도는 앎, 전문가 수준)</p></div></div>
+<div class="row user"><div class="bubble">완전 초보야</div></div>
+<div class="row ai"><div class="ai-body"><p>좋아요. 필요한 정보를 확인했어요. 학습 순서를 정하고 바로 수업을 시작할게요.</p></div></div>
+<div class="row ai"><div class="ai-body"><p>반가워요! 우리 블록체인 자격증 취득을 향한 첫걸음을 즐겁게 시작해 봐요.</p>
+<p>첫 번째 단계로 <strong>&#x27;중앙집중형 시스템&#x27;과 &#x27;분산 원장 기술(DLT)&#x27;</strong>의 차이점을 먼저 알아볼게요. 기존의 은행 같은 시스템은 모든 거래 기록을 은행의 중앙 서버 한 곳에만 저장해 두는 <strong>중앙집중형 시스템</strong>이에요. 반면에 블록체인은 네트워크에 참여하는 모든 사람이 똑같은 거래 장부를 나누어 가지는 <strong>분산 원장 기술(DLT)</strong>을 사용한답니다. 이렇게 하면 중앙 서버가 해킹당하더라도 다른 사람들의 장부가 안전하게 남아있기 때문에 데이터가 조작되거나 사라지지 않아요.</p>
+<p>개념을 잘 이해하셨는지 확인하기 위해 가벼운 질문을 하나 드릴게요.</p>
+<blockquote>만약 친구들과 회비를 모을 때 <strong>&quot;한 명의 총무에게 장부를 전적으로 맡기는 것&quot;</strong>과 <strong>&quot;모든 친구가 각자 똑같은 장부를 적어서 서로 비교하는 것&quot;</strong> 중, 블록체인의 작동 방식과 더 가까운 것은 무엇일까요?</blockquote></div></div></div><div class="composer"><div class="pill">Gemini에게 물어보기</div></div></div>
+<figcaption><strong>화면 1.</strong> 조건 A는 무엇을 배우고 싶은지, 목표가 무엇인지, 현재 수준이 어떠한지를 먼저 확인한 뒤
+학습 순서를 정하고 첫 단계부터 수업을 시작한다. 설명 후에는 이해를 확인하는 질문을 제시한다.</figcaption>
+</figure>
+
+<h2>2. 조건 B (대조군) — 실제 화면</h2>
+<figure>
+<div class="screen faded"><div class="thread"><div class="row user"><div class="bubble">안녕? 블록체인에 대해 알려줘</div></div>
+<div class="row ai"><div class="ai-body"><p>안녕하세요! <strong>블록체인(Blockchain)</strong>에 대해 쉽고 자세히 설명해 드릴게요. 😊</p>
+<hr>
+<h4 class="mdh">1. 블록체인이란 무엇인가요? (핵심 개념)</h4>
+<p>쉽게 말해, 블록체인은 <strong>‘모두가 공동으로 관리하는 디지털 장부(가계부)’</strong>입니다.</p>
+<p>기존에는 돈을 보내거나 거래할 때 은행 같은 <strong>&#x27;중앙 기관&#x27;</strong>이 거래 내역을 기록하고 보증해 주었습니다. 하지만 블록체인 기술을 사용하면 거래 참여자 <strong>모두가 동일한 장부 사본을 나누어 가집니다.</strong></p>
+<p>새로운 거래가 발생할 때마다 네트워크에 참여한 모든 사람의 장부에 실시간으로 기록되기 때문에, 한 사람이 장부를 조작하거나 해킹하는 것이 사실상 불가능합니다.</p>
+<hr>
+<h4 class="mdh">2. 블록체인은 어떻게 작동하나요? (블록 + 체인)</h4>
+<p>이름 그대로 <strong>&#x27;블록(Block)&#x27;</strong>과 <strong>&#x27;체인(Chain)&#x27;</strong>의 결합입니다.</p>
+<ul>
+<li><strong>블록(Block)이란?</strong></li>
+<ul>
+<li>일정 시간 동안 발생한 거래 데이터(예: A가 B에게 10코인을 보냄)를 모아놓은 <strong>상자</strong>입니다.</li>
+</ul>
+<li><strong>체인(Chain)이란?</strong></li>
+<ul>
+<li>이 상자들이 생성된 순서대로 사슬처럼 서로 굳게 연결된 것을 뜻합니다.</li>
+<li>새로운 블록이 만들어질 때, 바로 이전 블록의 암호화된 정보(해시값)가 함께 담깁니다. 따라서 중간에 있는 블록 하나를 마음대로 수정하면 그 뒤에 있는 모든 블록이 깨지게 되므로 위조가 불가능합니다.</li>
+</ul>
+</ul>
+<hr>
+<h4 class="mdh">3. 블록체인의 3대 특징</h4>
+<ol>
+<li><strong>탈중앙화 (Decentralization)</strong></li>
+<ul>
+<li>은행이나 정부 같은 중앙 관리자 없이, 참여자들(P2P 네트워크)이 직접 거래를 승인하고 장부를 유지합니다.</li>
+</ul>
+<li><strong>보안성과 위·변조 방지 (Security &amp; Immutability)</strong></li>
+<ul>
+<li>누군가 장부를 조작하려면 네트워크에 연결된 전 세계 컴퓨터의 절반 이상(51%)을 동시에 해킹해야 합니다. 이는 현실적으로 불가능에 가깝습니다.</li>
+</ul>
+<li><strong>투명성 (Transparency)</strong></li>
+<ul>
+<li>누구나 블록체인 네트워크에 기록된 거래 내역을 열람할 수 있어 매우 투명합니다. (물론 개인 신원은 암호화된 주소로 표시되어 프라이버시가 보호됩니다.)</li>
+</ul>
+</ol>
+<hr>
+<h4 class="mdh">4. 주로 어디에 사용되나요?</h4>
+<p>블록체인은 단순히 &#x27;암호화폐&#x27;만을 위한 기술이 아닙니다. 매우 다양한 분야에서 활용됩니다.</p>
+<ul>
+<li><strong>가상자산 (Cryptocurrency):</strong> 비트코인(Bitcoin), 이더리움(Ethereum) 등 대안 화폐 및 투자 자산.</li>
+<li><strong>스마트 계약 (Smart Contract):</strong> &quot;조건 A가 충족되면 자동으로 B를 실행한다&quot;는 코드 기반의 계약입니다. 중개인(부동산 중개업자나 변호사 등) 없이도 안전하게 자동 계약을 체결할 수 있습니다.</li>
+<li><strong>NFT (대체 불가능한 토큰):</strong> 디지털 그림, 음악, 게임 아이템 등에 고유한 &#x27;디지털 소유권 증서&#x27;를 부여합니다.</li>
+<li><strong>물류 및 유통 추적:</strong> 식품이나 의약품이 어디서 생산되어 어떤 경로로 배송되었는지 투명하게 추적합니다.</li>
+<li><strong>신원 증명 (DID):</strong> 기관에 개인정보를 통째로 넘기지 않고, 내 스마트폰 안에서 안전하게 신원을 증명(예: 모바일 신분증)할 수 있게 해줍니다.</li>
+</ul>
+<hr>
+<p><strong>요약하자면,</strong> 블록체인은 <strong>&quot;중앙 관리자 없이도 인터넷상에서 서로 신뢰할 수 있게 해주는 혁신적인 보안 기술&quot;</strong>이라고 이해하시면 됩니다.</p>
+<p>혹시 블록체인의 작동 원리(합의 알고리즘 등), 비트코인과의 차이점, 혹은 스마트 계약 등 더 깊이 알고 싶으신 부분이 있으신가요? 편하게 물어보세요!</p></div></div></div><div class=fade></div><div class="composer"><div class="pill">Gemini에게 물어보기</div></div></div>
+<figcaption><strong>화면 2.</strong> 조건 B는 학습자의 목표나 수준을 확인하는 절차 없이, 참가자의 요청에 곧바로 설명을 제시한다.
+이후에도 참가자가 묻는 내용에 그때그때 응답하며, 학습 순서나 진도를 관리하지 않는다. (응답이 길어 화면 일부만 표시)</figcaption>
+</figure>
+
+<h2>3. 시스템 처리 구조</h2>
+<figure>
+<img src="images/flow.png" style="width:100%" alt="조건별 처리 흐름 도식">
+<figcaption><strong>그림 1.</strong> 조건별 처리 흐름. <strong>(위, treatment = 조건 A)</strong> 참가자의 발화가 들어오면 시스템은 학습에 필요한 정보가
+모두 파악되었는지 확인하여, 부족하면 정보를 수집하는 모듈(Analyst)로, 충분하면 발화의 성격을 분류하는 모듈(Intent Classifier)로 보낸다.
+정보가 모두 모이면 학습 순서를 설계하고(Syllabus Designer), 수업 중에는 매 차례 현재 단계의 학습목표 달성 여부를 평가하여
+진도를 관리한다(Step Progress). 초록색 화살표는 학습 정보나 학습 순서가 갱신되는 지점이다.
+<strong>(아래, control = 조건 B)</strong> 이러한 구조 없이 참가자의 발화를 언어모델에 그대로 전달하여 응답을 생성한다.
+두 조건은 동일한 언어모델과 동일한 웹 검색 기능을 사용하며, 차이는 위 구조의 유무 하나로 한정된다.</figcaption>
+</figure>
+
+</body></html>
