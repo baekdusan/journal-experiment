@@ -64,12 +64,15 @@ flowchart LR
 
 ### 색 규칙이 갈리는 지점 (검토용)
 
+**규칙**: 엣지는 **그 엣지를 지나는 것이 `LearningState` 갱신을 반드시 동반할 때만** 초록이다.
+분기 뒤에서야 갱신이 결정되면, 분기로 들어가는 엣지는 일반이고 갈라진 쪽이 초록이다.
+
 Figure를 다시 그릴 때 틀리기 쉬운 자리들이다.
 
 | 엣지 | 색 | 이유 |
 |------|-----|------|
 | `Analyst → isLearnerProfileFilled?` | **상태 변경** | Analyst 실행 후 `updateFromExtractedInfo`가 **무조건** 호출된다 |
-| `Feedback Agent → needsRedesign?` | 일반 | Feedback 호출 자체는 JSON 반환만. 프로필 갱신은 `explicitChange`가 참일 때만 뒤에서 일어난다 |
+| `Feedback Agent → needsRedesign?` | 일반 | `needsRedesign`·`explicitChange`는 `LearningState`가 아니라 **`FeedbackResult`의 필드**다([conversational_agent_service.dart:29-45](lib/services/conversational_agent_service.dart#L29-L45)) — 영속화되지 않는 일회성 DTO다. Feedback 호출이 하는 일은 `response`를 붙이는 것뿐이고, 갱신은 `explicitChange`가 참인 쪽에서만 일어난다([chat_provider.dart:856](lib/providers/chat_provider.dart#L856)) |
 | `needsRedesign && explicitChange? → True` | **상태 변경** | 이 경로는 `explicitChange`가 반드시 참 → 프로필 갱신 + 재설계 |
 | `isLearnerProfileFilled? → True` | 일반 | 프로필 갱신은 직전 Analyst 엣지에서 이미 표시됨 |
 | `Tutor → Step Progress Agent` | 일반 | Tutor는 상태를 바꾸지 않는다. 판정도 Tutor가 아닌 **별도 LLM 호출**이 한다 |
@@ -93,21 +96,21 @@ flowchart LR
     %% ---- in class ----
     Intent -->|in class| Tutor["Tutor Agent 🔍<br/>(스트리밍)"]
     Tutor --> R([Response])
-    Tutor ==> SP["StepProgress Agent"]
+    Tutor --> SP["StepProgress Agent"]
     SP --> SPC{"step_completed<br/>&& confidence ≥ 0.6?"}
-    SPC -->|"true, 마지막 단계"| Done["isCourseCompleted = true"]
-    SPC -->|"true, 그 외"| Adv["currentStepIndex += 1"]
+    SPC ==>|"true, 마지막 단계"| Done["isCourseCompleted = true"]
+    SPC ==>|"true, 그 외"| Adv["currentStepIndex += 1"]
     SPC -->|false| Keep["현재 단계 유지"]
     Done ==>|"마무리 발화 (종료 고지·요약·다음 안내)"| Tutor
 
     %% ---- out of class ----
     Intent -->|out of class| FB["Feedback Agent"]
     FB --> R
-    FB ==> EX{"explicitChange<br/>== true?"}
-    EX -->|true| PU["LearnerProfile 업데이트<br/>(level / tone)"]
+    FB --> EX{"explicitChange<br/>== true?"}
+    EX ==>|true| PU["LearnerProfile 업데이트<br/>(level / tone)"]
     EX -->|false| IGN["무시 (잡담)"]
     PU --> RD{"needsRedesign<br/>&& explicitChange?"}
-    RD -->|true| D1
+    RD ==>|true| D1
     RD -->|false| R
 
     %% ---- analyst → design ----
@@ -137,6 +140,14 @@ flowchart LR
 | 🔍 | `Tool.googleSearch()` grounding 활성 |
 | 파란 사각형 | LLM Micro-Agent |
 | 회색 마름모 | **앱**이 판단하는 분기 (LLM 아님) |
+
+> 굵은 실선의 기준은 축약도의 [색 규칙](#색-규칙이-갈리는-지점-검토용)과 같다 —
+> **그 엣지를 지나는 것이 반드시 상태 갱신을 동반할 때만** 굵게 그린다.
+> 조건 박스로 들어가는 엣지는 갱신 여부가 아직 정해지지 않았으므로 일반이다.
+
+> 점선과 굵은 실선은 겹칠 수 없어(mermaid 표기 한계) 백그라운드 표기가 우선한다.
+> `isLearnerProfileFilled? -.-> Syllabus Designer ①` 경로는 실제로는 진입 즉시
+> `setDesigning(true)`로 상태를 바꾸지만 점선으로만 표시된다.
 
 > 검색은 독립 에이전트가 아니라 두 호출에 붙은 **도구**다.
 > Intent / Analyst / Feedback / StepProgress는 검색 없는 JSON 추출기다.
