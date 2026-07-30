@@ -15,6 +15,7 @@ import '../services/conversational_agent_service.dart';
 import '../services/syllabus_designer_service.dart';
 import '../services/step_progress_service.dart';
 import '../services/session_export_service.dart';
+import '../config/agent_prompts.dart';
 import '../config/experiment_config.dart';
 
 part 'chat_provider.g.dart';
@@ -785,6 +786,12 @@ class ChatController extends _$ChatController {
         _recordStateChange(sessionId, StateChangeType.courseCompleted, {
           'completedAtStep': learning.currentStepIndex,
         });
+
+        // 완료는 앱 상태만 바꾸므로 학습자에게는 아무 신호도 가지 않는다.
+        // 마무리 발화를 한 번 더 돌려 종료 사실·정리·다음 안내를 튜터가 직접
+        // 말하게 한다(설계 완료 후 자동으로 수업을 시작하는 것과 같은 방식).
+        // 재귀는 없다 — 이 턴의 StepProgress는 isCourseCompleted에서 즉시 반환한다.
+        await _runTutorFlow(sessionId, AgentPrompts.courseClosingCue);
       } else {
         final next = learning.currentStepIndex + 1;
         await ref.read(learningStateProvider.notifier).setCurrentStep(next);

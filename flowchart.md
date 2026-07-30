@@ -40,6 +40,7 @@ flowchart LR
     Designer ==> Tutor
     Tutor --> R
     Tutor --> SP["Step Progress Agent"]
+    SP ==>|"마지막 단계 완료"| Tutor
 
     classDef agent fill:#E6F3FF,stroke:#4A90E2,stroke-width:2px
     classDef dec fill:#F0F0F0,stroke:#888,stroke-width:1px
@@ -52,10 +53,14 @@ flowchart LR
 ### 캡션
 
 > 처치군의 단일 턴 처리 흐름. 초록 엣지는 학습 상태(`LearnerProfile` / `InstructionalDesign` /
-> `currentStepIndex`) 변경을 동반하는 전이를 나타낸다. Syllabus Designer와 Tutor Agent는
-> Google Search grounding으로 자료를 취득하며, 이는 대조군도 공유하는 통제 변인이다.
+> `currentStepIndex` / `isCourseCompleted`) 변경을 동반하는 전이를 나타낸다.
+> Syllabus Designer와 Tutor Agent는 Google Search grounding으로 자료를 취득하며,
+> 이는 대조군도 공유하는 통제 변인이다.
 > Step Progress Agent는 in-class 튜터 턴 종료 후 현재 단계의 학습목표 달성 여부를 판정하여
-> 진행 단계를 갱신한다. 세션 수준 가드(중복 요청 차단, 수업 완료 후 재시작)는 도식에서 생략했다.
+> 진행 단계를 갱신한다. 마지막 단계가 완료되면 `isCourseCompleted`를 세우고 Tutor를 한 번 더
+> 호출해 마무리 발화(종료 고지·요약·다음 안내)를 생성한다 — 완료는 앱 상태 변경일 뿐이어서
+> 학습자에게 전달되는 창구가 이 발화뿐이다. 세션 수준 가드(중복 요청 차단, 수업 완료 후
+> 재시작)는 도식에서 생략했다.
 
 ### 색 규칙이 갈리는 지점 (검토용)
 
@@ -68,6 +73,7 @@ Figure를 다시 그릴 때 틀리기 쉬운 자리들이다.
 | `needsRedesign && explicitChange? → True` | **상태 변경** | 이 경로는 `explicitChange`가 반드시 참 → 프로필 갱신 + 재설계 |
 | `isLearnerProfileFilled? → True` | 일반 | 프로필 갱신은 직전 Analyst 엣지에서 이미 표시됨 |
 | `Tutor → Step Progress Agent` | 일반 | Tutor는 상태를 바꾸지 않는다. 판정도 Tutor가 아닌 **별도 LLM 호출**이 한다 |
+| `Step Progress Agent → Tutor` (마지막 단계 완료) | **상태 변경** | `markCourseCompleted()`로 `isCourseCompleted`를 세운 뒤 마무리 발화를 위해 Tutor를 다시 호출한다. 이 되돌아가는 턴은 StepProgress를 재호출하지 않는다(완료 상태에서 즉시 반환) |
 
 ---
 
@@ -92,6 +98,7 @@ flowchart LR
     SPC -->|"true, 마지막 단계"| Done["isCourseCompleted = true"]
     SPC -->|"true, 그 외"| Adv["currentStepIndex += 1"]
     SPC -->|false| Keep["현재 단계 유지"]
+    Done ==>|"마무리 발화 (종료 고지·요약·다음 안내)"| Tutor
 
     %% ---- out of class ----
     Intent -->|out of class| FB["Feedback Agent"]
@@ -144,21 +151,21 @@ flowchart LR
 
 | # | 조건 | 동작 | 위치 |
 |---|------|------|------|
-| 0 | `isProcessing` | 입력 무시 (LLM 호출 중복 방지) | [chat_provider.dart:251](lib/providers/chat_provider.dart#L251) |
-| 1 | `ExperimentConfig.isControl` | `_runFreeformFlow` → 이후 전부 건너뜀 | [chat_provider.dart:304](lib/providers/chat_provider.dart#L304) |
-| 2 | `isDesigning` | 입력 무시 (설계 중 중복 요청 방지) | [chat_provider.dart:332](lib/providers/chat_provider.dart#L332) |
-| 3 | `isCourseCompleted` | `_runAnalystFlow(forceAnalyst: true)` — 새 학습 시작 | [chat_provider.dart:337](lib/providers/chat_provider.dart#L337) |
-| 4 | `!(isLearnerProfileFilled && isDesignFilled)` | `_runAnalystFlow` — 정보 수집 | [chat_provider.dart:343](lib/providers/chat_provider.dart#L343) |
-| 5 | (위 전부 통과) | Intent 분류 → Tutor / Feedback | [chat_provider.dart:351](lib/providers/chat_provider.dart#L351) |
+| 0 | `isProcessing` | 입력 무시 (LLM 호출 중복 방지) | [chat_provider.dart:252](lib/providers/chat_provider.dart#L252) |
+| 1 | `ExperimentConfig.isControl` | `_runFreeformFlow` → 이후 전부 건너뜀 | [chat_provider.dart:305](lib/providers/chat_provider.dart#L305) |
+| 2 | `isDesigning` | 입력 무시 (설계 중 중복 요청 방지) | [chat_provider.dart:333](lib/providers/chat_provider.dart#L333) |
+| 3 | `isCourseCompleted` | `_runAnalystFlow(forceAnalyst: true)` — 새 학습 시작 | [chat_provider.dart:338](lib/providers/chat_provider.dart#L338) |
+| 4 | `!(isLearnerProfileFilled && isDesignFilled)` | `_runAnalystFlow` — 정보 수집 | [chat_provider.dart:346](lib/providers/chat_provider.dart#L346) |
+| 5 | (위 전부 통과) | Intent 분류 → Tutor / Feedback | [chat_provider.dart:354](lib/providers/chat_provider.dart#L354) |
 
 `isProcessing`은 백그라운드 설계와 이어지는 자동 Tutor 스트리밍까지 덮는다.
 `_activeCount` 카운터로 `_enter`/`_exit`을 짝지어, `sendMessage`가 먼저 반환해도 플래그가 유지된다
-([chat_provider.dart:202-228](lib/providers/chat_provider.dart#L202-L228)).
+([chat_provider.dart:209-229](lib/providers/chat_provider.dart#L209-L229)).
 
 ### Analyst Flow 내부 재분기
 
 `_runAnalystFlow`는 진입 직후 상태를 한 번 더 보고 다른 Flow로 넘긴다
-([chat_provider.dart:431-444](lib/providers/chat_provider.dart#L431-L444)):
+([chat_provider.dart:432-445](lib/providers/chat_provider.dart#L432-L445)):
 
 | 상태 | 동작 |
 |------|------|
@@ -169,7 +176,7 @@ flowchart LR
 ### 설계 트리거 조건
 
 Analyst 실행 후 설계를 시작하는 조건은 단순한 `isLearnerProfileFilled`가 아니다
-([chat_provider.dart:500-504](lib/providers/chat_provider.dart#L500-L504)):
+([chat_provider.dart:502-505](lib/providers/chat_provider.dart#L502-L505)):
 
 ```dart
 shouldTriggerDesign =
@@ -215,8 +222,8 @@ Gemini는 `Tool.googleSearch()`와 `responseSchema`(JSON 강제)를 **한 호출
 | 지점 | 게이트 | 위치 |
 |------|--------|------|
 | Analyst 필드 추출 | `explicit_fields[f] && field_confidence[f] >= 0.6` | [conversational_agent_service.dart:204-208](lib/services/conversational_agent_service.dart#L204-L208) |
-| Feedback 재설계 | `needs_redesign && explicit_change` | [chat_provider.dart:861](lib/providers/chat_provider.dart#L861) |
-| 단계 전진 | `step_completed && confidence >= 0.6` | [chat_provider.dart:781](lib/providers/chat_provider.dart#L781) |
+| Feedback 재설계 | `needs_redesign && explicit_change` | [chat_provider.dart:868](lib/providers/chat_provider.dart#L868) |
+| 단계 전진 | `step_completed && confidence >= 0.6` | [chat_provider.dart:782](lib/providers/chat_provider.dart#L782) |
 
 `needsRedesign == true && explicitChange == false`는 LLM 오판으로 간주해 무시하고 로그만 남긴다
 (예: "이거 너무 어려운데요?" → 재설계 필요로 착각).
@@ -225,18 +232,37 @@ Gemini는 `Tool.googleSearch()`와 `responseSchema`(JSON 강제)를 **한 호출
 
 ## 단계 진행 판정
 
-in-class 튜터 턴이 끝날 때마다 실행된다 ([chat_provider.dart:759-800](lib/providers/chat_provider.dart#L759-L800)).
+in-class 튜터 턴이 끝날 때마다 실행된다 ([chat_provider.dart:760-806](lib/providers/chat_provider.dart#L760-L806)).
 
 - **입력**: 현재 `Step`(topic + objective) + 최근 6턴 히스토리
 - **출력**: `{step_completed, confidence}` — 불리언 신호만
 - **판단**: 단계 전진/완료 처리는 **앱**이 한다 ("앱이 판단, LLM은 생성만")
-  - `completed && conf ≥ 0.6 && isLastStep` → `markCourseCompleted()`
+  - `completed && conf ≥ 0.6 && isLastStep` → `markCourseCompleted()` **+ 마무리 발화**
   - `completed && conf ≥ 0.6` → `setCurrentStep(index + 1)` (단조 증가)
   - 그 외 → 현재 단계 유지
 - **실패 시**: 예외를 삼키고 수업 흐름을 막지 않는다 (graceful degradation)
 
-`isCourseCompleted`가 켜지면 다음 Query는 진입 가드 #3에 걸려 Analyst로 돌아가고,
-새 학습 주제를 수집하는 순환이 닫힌다.
+### 완료 고지
+
+`markCourseCompleted()`는 앱 상태만 바꾼다. 판정은 튜터 턴이 **끝난 뒤** 돌기 때문에
+그 시점에는 이미 답변이 화면에 나가 있어, 완료 사실을 학습자에게 알릴 창구가 없다.
+그래서 완료 직후 Tutor를 한 번 더 호출한다
+([chat_provider.dart:794](lib/providers/chat_provider.dart#L794)).
+
+- 트리거: `AgentPrompts.courseClosingCue` — 세션에 저장되지 않는 합성 user 메시지.
+  설계 완료 후 자동으로 수업을 시작할 때 쓰는 `'수업을 시작해줘'`와 같은 방식이다.
+- 내용 규정: `AgentPrompts.tutorSystem`의 **마무리 지침**(완료 시에만 삽입).
+  같은 프롬프트에서 진행 마킹도 전 단계 `✓`로 바뀐다 — 마지막 단계에 `▶`가 남으면
+  모델이 아직 진행 중으로 보고 수업을 이어가려 한다.
+- 재귀 없음: 이 되돌아가는 턴의 StepProgress는 `isCourseCompleted`에서 즉시 반환한다.
+
+`isCourseCompleted`가 켜지면 그 다음 Query는 진입 가드 #3에 걸려 Analyst로 돌아간다.
+Analyst 프롬프트에도 완료 상태가 주입되어(`[직전 상황]` 블록) "수업 끝났어?" 류의 확인에
+먼저 끝났다고 답하고, 새 주제가 나오면 그 주제로 순환이 닫힌다.
+
+새 주제·목표가 실제로 바뀌면 `updateFromExtractedInfo`의 `resetDesign`이 syllabus·완료
+플래그·단계 인덱스를 함께 초기화하므로([learning_state_provider.dart:47](lib/providers/learning_state_provider.dart#L47)),
+같은 주제를 재추출한 경우에는 아무 일도 일어나지 않는다(의도된 동작).
 
 ---
 
@@ -299,7 +325,7 @@ classDiagram
 | **isDesigning** | 수동 설정 | [learning_state.dart:12](lib/models/learning_state.dart#L12) | 설계 진행 중 (중복 방지) |
 | **showDesignReady** | 수동 설정 | [learning_state.dart:13](lib/models/learning_state.dart#L13) | 설계 완료 안내 플래그 (Tutor 첫 턴에 해제) |
 | **isCourseCompleted** | StepProgress 판정으로 설정 | [learning_state.dart:14](lib/models/learning_state.dart#L14) | 학습 완료 (새 학습 시작 판단용) |
-| **isProcessing** | `_activeCount > 0` (휘발성, 영속화 안 함) | [chat_provider.dart:80](lib/providers/chat_provider.dart#L80) | LLM 호출 진행 중 |
+| **isProcessing** | `_activeCount > 0` (휘발성, 영속화 안 함) | [chat_provider.dart:81](lib/providers/chat_provider.dart#L81) | LLM 호출 진행 중 |
 
 ---
 
@@ -324,7 +350,7 @@ classDiagram
 ## 대조군 (control)
 
 `?condition=control`로 진입하며, 위 라우팅을 **전부 건너뛴다**
-([chat_provider.dart:678-747](lib/providers/chat_provider.dart#L678-L747)).
+([chat_provider.dart:679-748](lib/providers/chat_provider.dart#L679-L748)).
 
 ```mermaid
 flowchart LR
@@ -349,8 +375,8 @@ flowchart LR
 
 | 용도 | 범위 | 위치 |
 |------|------|------|
-| 학습자 대면 스트리밍 (양 조건) | **세션 전체 히스토리** | [`_recentMessages`](lib/providers/chat_provider.dart#L1209) |
-| 판정용 에이전트 (StepProgress / Feedback) | 최근 **6턴** 윈도우 | [`_buildHistory`](lib/providers/chat_provider.dart#L1094) |
+| 학습자 대면 스트리밍 (양 조건) | **세션 전체 히스토리** | [`_recentMessages`](lib/providers/chat_provider.dart#L1216) |
+| 판정용 에이전트 (StepProgress / Feedback) | 최근 **6턴** 윈도우 | [`_buildHistory`](lib/providers/chat_provider.dart#L1101) |
 
 30분 단일 세션이라 컨텍스트 부담이 작고, 윈도우 잘림으로 인한 선호·맥락 망각을 없애기 위한 결정이다.
 Gemini chat history는 user 메시지로 시작해야 하므로, 선두의 model 메시지는 제거하고 전달한다.

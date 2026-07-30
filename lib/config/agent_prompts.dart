@@ -106,7 +106,10 @@ $contextSection
     final toneForResponse = profile.tonePreference?.name ?? 'kind';
 
     // 진행 마킹: ✓ 완료 / ▶ 현재 / ○ 예정
-    final curIdx = state.currentStepIndex;
+    // 완료 후에는 진행 중인 단계가 없으므로 전 단계를 ✓로 둔다. 마지막 단계에
+    // ▶가 남으면 모델이 아직 진행 중이라고 보고 수업을 이어가려 한다.
+    final curIdx =
+        state.isCourseCompleted ? design.syllabus.length : state.currentStepIndex;
     final syllabusBlock = design.syllabus.asMap().entries.map((e) {
       final idx = e.key;
       final step = e.value;
@@ -114,8 +117,22 @@ $contextSection
       return '$mark ${idx + 1}. ${step.topic} - ${step.objective}';
     }).join('\n');
 
-    final currentStepLine =
-        '${state.progressLabel} — ${state.currentStep?.topic ?? '-'}';
+    final currentStepLine = state.isCourseCompleted
+        ? '전 단계 완료 (수업 종료)'
+        : '${state.progressLabel} — ${state.currentStep?.topic ?? '-'}';
+
+    // 완료 시에는 진행용 원칙 대신 마무리 지침을 준다. 완료 사실을 학습자에게
+    // 전달하는 창구는 이 발화뿐이므로(앱은 플래그만 바꾼다) 분명히 말하게 한다.
+    final closingSection = state.isCourseCompleted
+        ? '''
+
+[마무리 지침 — 지금은 수업을 끝내는 턴이다]
+- 수업 계획의 모든 단계를 마쳤다. 새로운 개념 설명이나 새 확인 질문을 시작하지 마라.
+- 지금까지 배운 내용을 3~5문장으로 짧게 정리하라.
+- **수업이 끝났다는 사실을 분명한 문장으로 알려라.** 애매하게 흐리거나 암시만 하지 마라.
+- 마지막으로, 더 배우고 싶은 주제가 있으면 말해달라고 안내하라.
+'''
+        : '';
 
     return '''너는 학습자를 돕는 친절하고 전문적인 튜터다.
 수업 계획을 참고하여 학습자의 흐름에 맞게 자연스럽게 수업을 진행하라.
@@ -142,11 +159,18 @@ $syllabusBlock
 9) 수업 계획의 모든 내용을 충분히 다뤘다고 판단되면, 학습 완료 여부를 자연스럽게 물어보라.
 10) 설명에 필요한 자료는 검색으로 찾아 그 내용에 근거하여 설명하고, 확인되지 않은 사실을 지어내지 마라.
 11) 교수설계 이론을 적용하여 효과적으로 학습을 안내하라.
-
+$closingSection
 [출력 규칙]
 - 반드시 한국어 자연어로만 답하라.
 - JSON을 출력하지 마라.''';
   }
+
+  /// 수업 완료 직후 마무리 발화를 트리거하는 내부 지시문.
+  ///
+  /// 학습자 발화가 아니라 앱이 만드는 합성 user 메시지다(세션에 저장되지 않는다).
+  /// 설계 완료 후 자동으로 수업을 시작할 때 쓰는 '수업을 시작해줘'와 같은 방식이다.
+  /// 완료 사실·정리·다음 안내는 [tutorSystem]의 마무리 지침이 규정한다.
+  static const String courseClosingCue = '수업 계획의 마지막 단계까지 끝났다. 수업을 마무리해줘.';
 
   // ==========================================================================
   // Analyst
@@ -157,8 +181,25 @@ $syllabusBlock
     final profile = state.learnerProfile;
     final level = profile.level?.name ?? '미정';
     final tone = profile.tonePreference?.name ?? '미정';
+
+    // 수업을 마친 뒤의 발화도 이 에이전트로 들어온다(chat_provider의 완료 후
+    // 라우팅). 완료 사실을 모르면 "수업 끝났어?" 같은 확인 질문에 새 주제
+    // 수집용 응답을 내보내 학습자가 같은 질문을 반복하게 된다.
+    final completedSection = state.isCourseCompleted
+        ? '''
+
+    [직전 상황 — 매우 중요]
+    - 학습자는 '${_orUndecided(profile.subject)}' 수업을 방금 **모두 마쳤다.**
+    - 수업이 끝났는지 묻거나 종료를 확인하려는 발화에는, 먼저 **끝났다고 분명히 답하라.**
+      되묻거나 새 정보를 캐묻는 것으로 넘기지 마라.
+    - 새로 배울 주제를 말하지 않았다면 재촉하지 말고, 원할 때 말해달라고만 안내하라.
+    - 새 주제를 말했다면 그 주제를 subject로 잡아라(이전 주제를 그대로 두지 마라).
+'''
+        : '';
+
     return '''너는 학습자의 정보를 수집하는 튜터다.
     자연스러운 대화를 통해 학습자의 학습 주제(subject), 목표(goal), 수준(level)을 파악하라.
+$completedSection
 
     [수집할 정보 - 이 세 가지만 적극적으로 파악한다]
     - subject: 무엇을 배우고 싶은가?
