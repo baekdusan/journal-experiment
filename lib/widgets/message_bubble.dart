@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/message.dart';
 import '../providers/streaming_message_provider.dart';
+import '../utils/markdown_normalizer.dart';
 import 'typing_indicator.dart';
 
 /// 단일 채팅 메시지를 Gemini 웹 앱 스타일로 표시하는 위젯.
@@ -23,12 +24,15 @@ class MessageBubble extends ConsumerWidget {
     final isUser = message.role == MessageRole.user;
     final theme = Theme.of(context);
 
-    final streamingState = ref.watch(streamingMessageProvider);
-    final isCurrentlyStreaming = streamingState?.messageId == message.id;
-
-    final displayContent = isCurrentlyStreaming
-        ? streamingState!.content
-        : message.content;
+    // 이 메시지가 스트리밍 대상일 때만 청크를 구독한다. 전체 상태를 그대로
+    // 감시하면 청크마다 모든 버블이 리빌드되고, flutter_markdown이 내부적으로
+    // UniqueKey를 새로 발급해(builder.dart:1046) 진행 중인 텍스트 선택이 끊긴다.
+    final streamingContent = ref.watch(
+      streamingMessageProvider.select(
+        (s) => s?.messageId == message.id ? s!.content : null,
+      ),
+    );
+    final displayContent = streamingContent ?? message.content;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
@@ -85,26 +89,17 @@ class MessageBubble extends ConsumerWidget {
       );
     } else {
       return MarkdownBody(
-        data: _normalizeMarkdown(effectiveContent),
+        // CJK 강조 깨짐 + 미지원 LaTeX 보정. 양 실험 조건이 공유하는 표시 계층
+        // 이므로 형식 보정은 프롬프트가 아니라 여기서 한다.
+        data: normalizeForDisplay(effectiveContent),
         styleSheet: _buildMarkdownStyleSheet(theme),
-        selectable: true,
+        // selectable: true는 블록마다 독립적인 SelectableText를 만들어
+        // (builder.dart:1049) 문단 하나를 넘어가는 드래그가 불가능해진다.
+        // 대신 chat_view.dart의 SelectionArea가 리스트 전체를 하나의 선택
+        // 영역으로 묶는다 — Text.rich는 상위 SelectionRegistrar에 참여한다.
+        selectable: false,
       );
     }
-  }
-
-  /// 한국어(CJK) 텍스트에서 마크다운 강조가 깨지는 경우를 보정한다.
-  ///
-  /// LLM이 `**'개념'**`처럼 강조 마커 안쪽에 따옴표를 넣으면, 닫는 `**`가
-  /// "따옴표(구두점) + 한글" 경계에 놓여 CommonMark 강조 규칙상 인식되지 않는다.
-  /// 따옴표를 강조 마커 바깥으로 옮겨(`'**개념**'`) 정상 렌더되게 한다.
-  String _normalizeMarkdown(String content) {
-    // 강조 마커 안쪽 양 끝에 붙은 따옴표류(' " ‘ ’ “ ”)를 바깥으로 이동.
-    const q = "['\"‘’“”]";
-    final boldFix = RegExp('\\*\\*($q)(.+?)($q)\\*\\*');
-    final italicFix = RegExp('(?<!\\*)\\*($q)(.+?)($q)\\*(?!\\*)');
-    return content
-        .replaceAllMapped(boldFix, (m) => '${m[1]}**${m[2]}**${m[3]}')
-        .replaceAllMapped(italicFix, (m) => '${m[1]}*${m[2]}*${m[3]}');
   }
 
   /// Gemini 톤(가벼운 헤딩, 블루 링크)에 맞춘 마크다운 스타일.

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/experiment_config.dart';
 import '../models/chat_session.dart';
+import '../models/message.dart';
 import '../providers/chat_provider.dart';
 import '../providers/learning_state_provider.dart';
 import '../providers/streaming_message_provider.dart';
@@ -24,26 +26,76 @@ class ChatView extends ConsumerStatefulWidget {
   ConsumerState<ChatView> createState() => _ChatViewState();
 }
 
+/// 답변을 따라 내려가지 않는 스크롤 모델(Gemini 웹 앱과 동일).
+///
+/// - 질문을 보내면 그 말풍선을 **화면 맨 위**로 올린다. 이전 대화는 위로 밀린다.
+/// - 스트리밍 중에는 자동으로 따라 내려가지 **않는다**. 읽는 위치를 빼앗지 않는다.
+/// - 아래에 아직 읽지 않은 내용이 남아 있으면 입력창 위에 "맨 아래로" 화살표를 띄운다.
 class _ChatViewState extends ConsumerState<ChatView> {
   final _scrollController = ScrollController();
 
+  /// 마지막 턴을 화면 맨 위까지 끌어올릴 수 있도록 리스트 끝에 확보하는 여백.
+  ///
+  /// 질문을 보낸 직후에는 그 아래에 내용이 거의 없어, 끝까지 스크롤해도 말풍선이
+  /// 맨 위로 오지 않는다. 부족한 만큼만 확보하고 답변이 길어지면 회수한다.
+  double _extraBottom = 0;
+
+  /// 화면 맨 위에 고정한 사용자 메시지. 여백 회수 계산의 기준점이다.
+  String? _pinnedMessageId;
+
+  /// 메시지별 GlobalKey. 말풍선의 실제 위치를 재기 위해 필요하다.
+  final _messageKeys = <String, GlobalKey>{};
+
+  bool _showJumpToBottom = false;
+
+  /// 고정 시 말풍선 위에 남기는 숨 쉴 틈.
+  static const _pinTopInset = 12.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateJumpButton);
+  }
+
   @override
   void dispose() {
+    _scrollController.removeListener(_updateJumpButton);
     _scrollController.dispose();
     super.dispose();
   }
 
-  /// 메시지 목록을 최하단으로 스크롤한다.
+  GlobalKey _keyFor(String id) =>
+      _messageKeys.putIfAbsent(id, () => GlobalKey());
+
+  /// 확보 여백을 제외한 '실제 내용'이 화면 아래로 얼마나 남았는지.
   ///
-  /// 새 메시지가 추가되거나 스트리밍 중일 때 호출되어
-  /// 사용자가 항상 최신 메시지를 볼 수 있도록 한다.
-  ///
-  /// [animate]=false는 스트리밍 청크용이다. 청크는 수십 ms 간격으로 들어오는데
-  /// 매번 300ms 애니메이션을 걸면 직전 애니메이션이 계속 취소·재시작되어
-  /// 오히려 따라가지 못한다. 늘어난 만큼 즉시 붙는 편이 부드럽다.
+  /// [_extraBottom]까지 바닥으로 세면 빈 여백만 남았을 때도 화살표가 떠서,
+  /// 내려가도 볼 것이 없는 버튼이 된다.
+  double _contentBelowFold() {
+    if (!_scrollController.hasClients) return 0;
+    final position = _scrollController.position;
+    return (position.maxScrollExtent - _extraBottom) - position.pixels;
+  }
+
+  void _updateJumpButton() {
+    final show = _contentBelowFold() > 120;
+    if (show != _showJumpToBottom && mounted) {
+      setState(() => _showJumpToBottom = show);
+    }
+  }
+
+  /// 실제 내용의 끝으로 스크롤한다(확보 여백 안쪽까지는 내려가지 않는다).
   void _scrollToBottom({bool animate = true}) {
     if (!_scrollController.hasClients) return;
-    final target = _scrollController.position.maxScrollExtent;
+    _scrollTo(_scrollController.position.maxScrollExtent - _extraBottom,
+        animate: animate);
+  }
+
+  void _scrollTo(double offset, {bool animate = true}) {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final target =
+        offset.clamp(position.minScrollExtent, position.maxScrollExtent);
     if (animate) {
       _scrollController.animateTo(
         target,
@@ -55,14 +107,62 @@ class _ChatViewState extends ConsumerState<ChatView> {
     }
   }
 
-  /// 뷰가 최하단 근처에 있는지 여부.
+  /// [messageId] 말풍선의 위쪽 끝을 뷰포트 맨 위에 맞추는 스크롤 오프셋.
+  double? _offsetToPin(String messageId) {
+    final context = _messageKeys[messageId]?.currentContext;
+    if (context == null || !_scrollController.hasClients) return null;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    // ensureVisible과 같은 계산. alignment 0 = 대상의 위쪽을 뷰포트 위쪽에 맞춤.
+    final reveal = RenderAbstractViewport.of(box).getOffsetToReveal(box, 0);
+    return reveal.offset - _pinTopInset;
+  }
+
+  /// 질문 말풍선을 화면 맨 위로 올린다. 필요하면 아래 여백을 먼저 확보한다.
   ///
-  /// 사용자가 위로 올려 이전 내용을 읽는 중이라면 자동 스크롤이 방해가 되므로,
-  /// 따라 내리기는 이미 바닥을 보고 있을 때만 수행한다.
-  bool _isNearBottom() {
-    if (!_scrollController.hasClients) return true;
-    final position = _scrollController.position;
-    return position.maxScrollExtent - position.pixels < 120;
+  /// [retry]는 내부 재시도 방지용이다. 말풍선이 아직 화면 밖이면 ListView가
+  /// 그것을 빌드하지 않아 위치를 잴 수 없으므로(GlobalKey에 context 없음),
+  /// 바닥으로 붙여 레이아웃시킨 다음 프레임에 한 번 다시 시도한다.
+  void _pinToTop(String messageId, {int retry = 0}) {
+    if (_messageKeys[messageId]?.currentContext == null) {
+      if (retry >= 2) return;
+      _scrollToBottom(animate: false);
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _pinToTop(messageId, retry: retry + 1),
+      );
+      return;
+    }
+
+    final target = _offsetToPin(messageId);
+    if (target == null) return;
+    final shortfall =
+        target - (_scrollController.position.maxScrollExtent - _extraBottom);
+    final needed = shortfall > 0 ? shortfall : 0.0;
+
+    if ((needed - _extraBottom).abs() > 1) {
+      // 여백이 반영된 레이아웃이 나온 다음 프레임에 스크롤해야 목표까지 간다.
+      setState(() => _extraBottom = needed);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollTo(target);
+        _updateJumpButton();
+      });
+      return;
+    }
+    _scrollTo(target);
+    _updateJumpButton();
+  }
+
+  /// 답변이 길어져 필요 없어진 여백을 회수한다(바닥의 빈 공간 제거).
+  void _shrinkExtraBottom() {
+    if (_extraBottom == 0 || _pinnedMessageId == null) return;
+    final target = _offsetToPin(_pinnedMessageId!);
+    if (target == null) return;
+    final shortfall =
+        target - (_scrollController.position.maxScrollExtent - _extraBottom);
+    final needed = shortfall > 0 ? shortfall : 0.0;
+    if ((needed - _extraBottom).abs() > 1 && mounted) {
+      setState(() => _extraBottom = needed);
+    }
   }
 
   @override
@@ -70,51 +170,52 @@ class _ChatViewState extends ConsumerState<ChatView> {
     final session = ref.watch(activeSessionProvider);
     final learningState = ref.watch(learningStateProvider);
 
-    // activeSessionProvider 변경을 감지하여 자동 스크롤을 트리거한다.
-    // 스크롤 트리거 조건:
-    // 1. 세션이 처음 로드됨 (previous == null)
-    // 2. 새 메시지가 추가됨 (메시지 개수 증가)
-    // 3. 스트리밍이 완료됨 (isStreaming: true → false 전환)
-    // addPostFrameCallback을 사용하여 프레임 렌더링 완료 후 스크롤을 실행한다.
+    // 세션 변화에 따른 스크롤 처리.
+    // addPostFrameCallback을 쓰는 이유는 새 말풍선이 레이아웃된 뒤에야
+    // 위치를 잴 수 있기 때문이다.
     ref.listen(activeSessionProvider, (previous, next) {
       if (next == null) return;
 
-      final shouldScroll = previous == null ||
-          // 새 메시지 추가
-          next.messages.length > previous.messages.length ||
-          // 스트리밍 완료 시 최종 레이아웃에 맞춰 한 번 더 보정
-          (previous.messages.isNotEmpty &&
-              next.messages.isNotEmpty &&
-              previous.messages.last.isStreaming &&
-              !next.messages.last.isStreaming);
-
-      if (shouldScroll) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      // 세션 최초 로드: 마지막 대화가 보이도록 바닥에 붙인다.
+      if (previous == null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _scrollToBottom(animate: false),
+        );
+        return;
       }
+
+      final added = next.messages.length > previous.messages.length;
+
+      // 새 질문 → 그 말풍선을 화면 맨 위로. 이후 답변은 아래에서 채워진다.
+      if (added && next.messages.last.role == MessageRole.user) {
+        final id = next.messages.last.id;
+        _pinnedMessageId = id;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _pinToTop(id));
+        return;
+      }
+
+      // 스트리밍 종료 → 남는 여백 회수 + 화살표 상태 재계산.
+      final streamingEnded = previous.messages.isNotEmpty &&
+          next.messages.isNotEmpty &&
+          previous.messages.last.isStreaming &&
+          !next.messages.last.isStreaming;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (streamingEnded) _shrinkExtraBottom();
+        _updateJumpButton();
+      });
     });
 
-    // 스트리밍 청크를 따라 내려간다.
+    // 스트리밍 청크는 따라 내려가지 않는다. 읽던 위치를 빼앗지 않기 위해서다.
+    // 대신 아래로 내용이 쌓이면 "맨 아래로" 화살표가 뜨도록 상태만 갱신한다.
     //
     // 청크는 ChatSession이 아니라 streamingMessageProvider에만 누적되므로
     // (streaming_message_provider.dart 참고 — 세션은 완료 시 1회만 갱신된다)
     // 위의 activeSessionProvider 리스너는 청크 도중 호출되지 않는다.
-    // 답변이 한 줄씩 늘어나는 동안 화면이 따라가려면 이쪽을 함께 들어야 한다.
     ref.listen(streamingMessageProvider, (previous, next) {
       if (next == null) return;
       if (previous?.content == next.content) return;
-      // 렌더 전 위치로 판단한다 — 청크가 붙으면 maxScrollExtent가 늘어나
-      // 프레임 이후에는 항상 "바닥에서 멀다"고 나오기 때문이다.
-      if (!_isNearBottom()) return;
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _scrollToBottom(animate: false),
-      );
-    });
-
-    // 타이핑 인디케이터가 나타나면 하단으로 스크롤하여 보이게 한다.
-    ref.listen(isProcessingProvider, (previous, next) {
-      if (next == true && previous != true) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _updateJumpButton());
     });
 
     // Gemini 스타일 레이아웃:
@@ -137,7 +238,19 @@ class _ChatViewState extends ConsumerState<ChatView> {
               ? _buildWelcome(context)
               : Container(
                   color: Theme.of(context).colorScheme.surface,
-                  child: _buildMessageList(session),
+                  // "맨 아래로" 화살표는 입력창 바로 위 가운데에 떠 있어야 하므로
+                  // 리스트 위에 겹쳐 놓는다.
+                  child: Stack(
+                    children: [
+                      _buildMessageList(session),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 12,
+                        child: Center(child: _buildJumpToBottom(context)),
+                      ),
+                    ],
+                  ),
                 ),
         ),
         if (!isEmpty) ...[
@@ -145,6 +258,39 @@ class _ChatViewState extends ConsumerState<ChatView> {
           _buildDisclaimer(context),
         ],
       ],
+    );
+  }
+
+  /// 읽지 않은 내용이 아래에 남았을 때만 뜨는 "맨 아래로" 원형 버튼.
+  Widget _buildJumpToBottom(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedOpacity(
+      opacity: _showJumpToBottom ? 1 : 0,
+      duration: const Duration(milliseconds: 150),
+      child: IgnorePointer(
+        ignoring: !_showJumpToBottom,
+        child: Tooltip(
+          message: '맨 아래로',
+          child: Material(
+            color: cs.surfaceContainerHigh,
+            shape: CircleBorder(side: BorderSide(color: cs.outlineVariant)),
+            elevation: 1,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _scrollToBottom,
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Icon(
+                  Icons.arrow_downward,
+                  size: 20,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -653,29 +799,39 @@ class _ChatViewState extends ConsumerState<ChatView> {
         session.messages.isNotEmpty && session.messages.last.isStreaming;
     final showTyping = isProcessing && !lastIsStreaming;
 
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      itemCount: session.messages.length + (showTyping ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index >= session.messages.length) {
+    // 사라진 메시지의 GlobalKey를 정리한다(세션 초기화 등).
+    final liveIds = session.messages.map((m) => m.id).toSet();
+    _messageKeys.removeWhere((id, _) => !liveIds.contains(id));
+
+    // 대화 전체를 하나의 선택 영역으로 묶는다. MessageBubble 쪽에서
+    // selectable을 끄고 여기서 감싸야 메시지·문단 경계를 넘는 드래그가 된다.
+    return SelectionArea(
+      child: ListView.builder(
+        controller: _scrollController,
+        // 아래 여백은 마지막 턴을 맨 위까지 올리기 위해 동적으로 확보된다.
+        padding: EdgeInsets.only(top: 18, bottom: 18 + _extraBottom),
+        itemCount: session.messages.length + (showTyping ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index >= session.messages.length) {
+            return Center(
+              key: const ValueKey('typing-indicator'),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 820),
+                child: const TypingIndicator(),
+              ),
+            );
+          }
+          final message = session.messages[index];
           return Center(
-            key: const ValueKey('typing-indicator'),
+            // 말풍선 위치를 재서 맨 위로 올리려면 GlobalKey가 필요하다.
+            key: _keyFor(message.id),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 820),
-              child: const TypingIndicator(),
+              child: MessageBubble(message: message),
             ),
           );
-        }
-        final message = session.messages[index];
-        return Center(
-          key: ValueKey(message.id),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 820),
-            child: MessageBubble(message: message),
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 }
