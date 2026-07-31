@@ -56,6 +56,38 @@ class _ChatInputState extends State<ChatInput> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _controller.clear();
+      // 전송 직후에는 대개 isProcessing이 켜져 입력창이 비활성 상태다.
+      // 그때는 여기서 포커스를 잡을 수 없으므로 [_refocusIfIdle]이 no-op이 되고,
+      // 처리가 끝나는 순간 아래 ref.listen이 포커스를 되돌린다.
+      _refocusIfIdle(ref);
+    });
+  }
+
+  /// 입력이 다시 가능해졌을 때만 입력창에 포커스를 되돌린다.
+  ///
+  /// 비활성 상태의 [TextField]는 포커스를 받을 수 없어, 다시 활성화된 프레임이
+  /// 그려진 뒤에 요청해야 한다. 그래서 post-frame으로 미룬다.
+  ///
+  /// 단, **학습자가 그 사이 다른 곳으로 포커스를 옮겼다면 뺏지 않는다.**
+  /// 대표적인 경우가 응답을 기다리며 이전 답변을 드래그해 두는 것인데,
+  /// 여기서 포커스를 가져오면 그 선택이 그대로 지워진다
+  /// (chat_view.dart의 SelectionArea가 포커스 기반으로 선택을 유지한다).
+  ///
+  /// 구분 기준은 실측으로 정했다 — 비활성화로 포커스가 풀리면 라우트의
+  /// [FocusScopeNode]만 남고, 학습자가 무언가를 잡으면 그 위젯의 [FocusNode]가
+  /// 주 포커스가 된다. 그래서 "스코프뿐일 때"만 되돌린다.
+  void _refocusIfIdle(WidgetRef ref) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final blocked = ref.read(learningStateProvider).isDesigning ||
+          ref.read(isProcessingProvider);
+      if (blocked) return;
+
+      final holder = FocusManager.instance.primaryFocus;
+      final heldElsewhere =
+          holder != null && holder is! FocusScopeNode && holder != _focusNode;
+      if (heldElsewhere) return;
+
       if (_focusNode.canRequestFocus) {
         _focusNode.requestFocus();
       }
@@ -82,6 +114,18 @@ class _ChatInputState extends State<ChatInput> {
                 final blocked = isDesigning || isProcessing;
                 final hasText = _controller.text.trim().isNotEmpty;
                 final canSend = !blocked && hasText;
+
+                // 처리가 끝나 입력이 다시 열리는 순간 포커스를 되돌린다.
+                // 비활성화되면 TextField가 포커스를 잃기 때문에, 이 전이를 잡지
+                // 않으면 학습자가 매 턴 입력창을 다시 클릭해야 한다.
+                ref.listen(
+                  isProcessingProvider,
+                  (_, next) => _refocusIfIdle(ref),
+                );
+                ref.listen(
+                  learningStateProvider.select((s) => s.isDesigning),
+                  (_, next) => _refocusIfIdle(ref),
+                );
 
                 return Container(
                   padding: const EdgeInsets.fromLTRB(22, 10, 10, 10),
@@ -132,6 +176,10 @@ class _ChatInputState extends State<ChatInput> {
                               controller: _controller,
                               focusNode: _focusNode,
                               autofocus: true,
+                              // 처리 중에는 입력 자체를 막는다. 예전에는 전송만
+                              // 막혀서, 응답 생성 중에 친 엔터가 아무 반응 없이
+                              // 버려졌다 — 피드백 없는 무시가 가장 나쁘다.
+                              enabled: !blocked,
                               maxLines: 6,
                               minLines: 1,
                               keyboardType: TextInputType.multiline,
@@ -141,7 +189,9 @@ class _ChatInputState extends State<ChatInput> {
                                 height: 1.4,
                               ),
                               decoration: InputDecoration(
-                                hintText: '무엇이든 물어보세요',
+                                hintText: blocked
+                                    ? '답변을 준비하는 중이에요'
+                                    : '무엇이든 물어보세요',
                                 hintStyle: theme.textTheme.bodyLarge?.copyWith(
                                   color: cs.onSurfaceVariant,
                                   fontSize: 16,
