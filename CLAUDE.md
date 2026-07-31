@@ -158,7 +158,7 @@ ChatSession? activeSession(ref) { ... }
 
 - Immutable with `copyWith()` methods
 - `toJson()`/`fromJson()` factories for serialization
-- `isMandatoryFilled`, `designFilled` 등 computed getters
+- `isLearnerProfileFilled`, `isDesignFilled`, `isLastStep` 등 computed getters
 
 ### State Management
 
@@ -200,10 +200,21 @@ Future(() async {
 ### 3. 상태 전이 조건
 
 ```
-isMandatoryFilled = subject != null && goal != null
-designFilled = syllabus.isNotEmpty
-isReady = isMandatoryFilled && designFilled
+isLearnerProfileFilled = _isFilled(subject) && _isFilled(goal) && level != null
+isDesignFilled         = syllabus.isNotEmpty
+isReady                = isLearnerProfileFilled && isDesignFilled
 ```
+
+- **`level`도 필수다.** subject·goal만으로는 설계가 시작되지 않는다
+  ([learner_profile.dart:34](lib/models/learner_profile.dart#L34)).
+  반면 `tonePreference`는 필수가 아니다 — 미정이면 튜터가 기본 말투(kind)로 진행한다.
+- `_isFilled()`는 `!= null`보다 엄격하다. null·공백뿐 아니라 **문자열 `"null"`도 거부**한다
+  (LLM이 미정을 `"null"` 문자열로 뱉는 경우를 막는다).
+- `isReady`는 getter가 아니라 [chat_provider.dart:344](lib/providers/chat_provider.dart#L344)의
+  **지역 변수**다. 위 둘과 성격이 다르다.
+
+> 이 이름들은 흐름도(`flowchart.md`)의 회색 판단 박스 라벨과 일치시킨다.
+> 앱이 `LearningState`를 읽어 분기하는 지점이 곧 이 조건들이다.
 
 ---
 
