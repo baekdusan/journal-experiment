@@ -172,16 +172,29 @@ ChatSession? activeSession(ref) { ... }
 
 ### 1. Tutor 스트리밍
 
-Tutor 모드는 `GeminiService.streamResponse()`를 사용하여 실시간 스트리밍합니다:
+Tutor 모드는 `GeminiService.streamResponse()`를 사용하여 실시간 스트리밍합니다.
+프롬프트를 한 덩어리로 넘기지 않고 **세 경로로 나눠** 전달합니다:
 
 ```dart
 // chat_provider.dart - _runTutorFlow()
-final prompt = agent.buildTutorStreamingPrompt(learning, userText, history);
-final stream = gemini.streamResponse(messages, prompt);
+// 상태·수업 계획·튜터링 원칙 → systemInstruction (매 턴 재빌드)
+final systemInstruction = agent.buildTutorSystemInstruction(learning);
+
+final stream = gemini.streamResponse(
+  _recentMessages(sessionId,                  // 대화 이력 → chat history
+      excludeMessageId: assistantId, currentUserText: userText),
+  userText,                                   // 이번 발화 → user 메시지
+  systemInstruction: systemInstruction,
+  onGrounding: (queries, sources) =>
+      _logGrounding(sessionId, 'tutor', queries, sources),
+);
 await for (final chunk in stream) {
-  // 메시지 업데이트
+  // streamingMessageProvider에 누적 (세션은 완료 시 1회만 갱신)
 }
 ```
+
+`systemInstruction`은 서버에 고정되는 값이 아니라 요청마다 함께 전송되므로,
+매 턴 현재 단계 마킹(✓▶○)을 갱신해 새로 빌드합니다.
 
 ### 2. Syllabus 생성 (백그라운드)
 
@@ -189,13 +202,19 @@ await for (final chunk in stream) {
 
 ```dart
 // chat_provider.dart - _startSyllabusDesign()
-await setDesigning(true);
+// await하지 않는다 — 플래그 저장(prefs)을 기다리느라 UI를 막지 않기 위해서다.
+unawaited(ref.read(learningStateProvider.notifier).setDesigning(true));
+
 Future(() async {
-  final syllabus = await designer.generate(profile);
-  await setSyllabus(syllabus);
-  await _runTutorFlow(sessionId, '수업을 시작해줘');
+  final result = await designer.generate(...);       // 1단계 검색 → 2단계 JSON
+  await ref.read(learningStateProvider.notifier).setSyllabus(result.syllabus);
+  await _runTutorFlow(sessionId, '수업을 시작해줘');   // 합성 큐로 첫 수업 턴
 });
 ```
+
+`setSyllabus`는 syllabus만 쓰는 게 아니라 `isDesigning=false`,
+`showDesignReady=true`, `isCourseCompleted=false`, `currentStepIndex=0`을 함께 세팅합니다
+([learning_state_provider.dart:79](lib/providers/learning_state_provider.dart#L79)).
 
 ### 3. 상태 전이 조건
 
@@ -275,4 +294,22 @@ final model = FirebaseAI.vertexAI(location: AiModels.extractor.location).generat
 
 ### 프롬프트 수정
 
-각 서비스의 `_buildPrompt()` 또는 `buildXxxPrompt()` 메서드에서 수정합니다. 프롬프트에는 필요한 상태 정보만 주입합니다.
+**서비스 파일이 아니라 [`lib/config/agent_prompts.dart`](lib/config/agent_prompts.dart)에서 수정합니다.**
+모든 프롬프트가 이 파일에 중앙화되어 있고, 각 서비스는 여기서 문자열을 받아 호출만 합니다.
+
+| 진입점 | 사용처 |
+|--------|--------|
+| `AgentPrompts.intentClassifier()` | `intent_classifier_service.dart` · `classify()` |
+| `AgentPrompts.analyst()` | `conversational_agent_service.dart` · `runAnalyst()` |
+| `AgentPrompts.feedback()` | `conversational_agent_service.dart` · `runFeedback()` |
+| `AgentPrompts.tutorSystem()` | `conversational_agent_service.dart` · `buildTutorSystemInstruction()` |
+| `AgentPrompts.courseClosingCue` | `chat_provider.dart` · 수업 완료 직후 마무리 발화 트리거 (합성 user 메시지) |
+| `AgentPrompts.syllabusResearch()` / `syllabusStructure()` | `syllabus_designer_service.dart` · `generate()` 1·2단계 |
+| `AgentPrompts.stepProgress()` | `step_progress_service.dart` · `evaluate()` |
+
+프롬프트에는 필요한 상태 정보만 주입합니다. 수정 후에는
+[AGENTS_AND_PROMPTS.md](AGENTS_AND_PROMPTS.md)의 사본도 함께 갱신하세요.
+
+> 대조군(control)에는 시스템 프롬프트가 없습니다. 여기 있는 프롬프트는 전부 처치군 전용이므로,
+> 프롬프트로 출력 형식을 제약하면 대조군만 그 제약을 받지 않아 조건 간 교란이 됩니다.
+> 형식 보정은 양 조건이 공유하는 표시 계층([markdown_normalizer.dart](lib/utils/markdown_normalizer.dart))에서 합니다.
