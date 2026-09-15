@@ -17,10 +17,11 @@ class ModelSpec {
 class AiModels {
   AiModels._();
 
-  /// 분류·추출용 (Intent / Analyst / Feedback / StepProgress / Wikidata).
-  /// 빠르고 저렴한 모델, temperature 0.0으로 사용.
+  /// 분류·추출용 (Intent / Analyst / Feedback / StepProgress / Designer 2단계).
+  /// 고빈도 JSON 판정에 맞춘 고속·저비용 모델, temperature 0.0으로 사용.
+  /// Gemini 2.5 Flash 종료(2026-10-20, Vertex AI) 대응으로 3.5 Flash-Lite를 사용한다.
   static const ModelSpec extractor =
-      ModelSpec('gemini-2.5-flash', 'us-central1');
+      ModelSpec('gemini-3.5-flash-lite', 'global');
 
   /// 학습자 대면 스트리밍 응답용 (처치군 Tutor + 대조군 순수 모델 공용).
   /// 양 조건 모두 gemini-3.5-flash(global)로 통일하고 Tool.googleSearch()
@@ -29,6 +30,6 @@ class AiModels {
   static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
 
   /// 교수설계(Syllabus) 생성용. 강한 추론 모델을 global에서 사용.
-  /// global이 불안정하면 ModelSpec('gemini-2.5-flash', 'us-central1')로 폴백.
+  /// global이 불안정하면 운영을 중단하고 엔드포인트 상태를 점검한다.
   static const ModelSpec designer = ModelSpec('gemini-3.5-flash', 'global');
 }

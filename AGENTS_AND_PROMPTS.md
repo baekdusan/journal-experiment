@@ -15,13 +15,13 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템의 각 Micro-Agent와 해�
 
 | 용도 | 에이전트 | 모델 | Location | Temperature |
 |------|----------|------|----------|-------------|
-| 분류·추출 (`extractor`) | Intent / Analyst / StepProgress / Designer 2단계 | `gemini-2.5-flash` | `us-central1` | 0.0 |
-| 분류·추출 (`extractor`) | Feedback | `gemini-2.5-flash` | `us-central1` | 0.3 |
+| 분류·추출 (`extractor`) | Intent / Analyst / StepProgress / Designer 2단계 | `gemini-3.5-flash-lite` | `global` | 0.0 |
+| 분류·추출 (`extractor`) | Feedback | `gemini-3.5-flash-lite` | `global` | 0.3 |
 | 학습자 대면 (`tutor`) | Tutor **+ 대조군 순수 모델 공용** | `gemini-3.5-flash` | `global` | 기본값 |
 | 교수설계 (`designer`) | Syllabus Designer 1단계 | `gemini-3.5-flash` | `global` | 0.3 |
 
 > `tutor`는 양 조건이 공유하는 **통제 변인**이다. 이 값 하나로 처치군 Tutor와 대조군 순수 모델이 함께 바뀐다.
-> location 제약: `gemini-2.5-flash` → `us-central1` 전용, `gemini-3.5-flash` → `global` 전용 (교차 시 404).
+> location 제약: `gemini-3.5-flash-lite`와 `gemini-3.5-flash`는 이 프로젝트에서 `global`로 호출한다.
 
 ## 검색(grounding) 사용 지점
 

@@ -42,7 +42,7 @@ flutter run -d chrome --web-port 8080
 // lib/config/ai_models.dart
 class AiModels {
   /// 분류·추출용 (Intent / Analyst / Feedback / StepProgress / Syllabus 2단계 구조화)
-  static const ModelSpec extractor = ModelSpec('gemini-2.5-flash', 'us-central1');
+  static const ModelSpec extractor = ModelSpec('gemini-3.5-flash-lite', 'global');
 
   /// 학습자 대면 스트리밍 (처치군 Tutor + 대조군 순수 모델 공용) — 양 조건 동일(통제 변인)
   static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
@@ -56,7 +56,7 @@ class AiModels {
 
 | 모델 | 가능한 location | 비고 |
 |------|----------------|------|
-| `gemini-2.5-flash` | `us-central1` | `global`은 라우팅 불안정(404 잦음) |
+| `gemini-3.5-flash-lite` | `global` | 분류·추출·판정용 고속·저비용 모델 |
 | `gemini-3.5-flash` | `global` **전용** | `us-central1`에서 404 |
 | `gemini-2.0-flash` | 사용 불가 | Vertex AI에서 retire됨 (404) |
 | `gemini-3-flash-preview` | 사용 불가 | `us-central1`에서 404 |

@@ -246,7 +246,7 @@ isReady                = isLearnerProfileFilled && isDesignFilled
 ```dart
 // lib/config/ai_models.dart
 class AiModels {
-  static const ModelSpec extractor = ModelSpec('gemini-2.5-flash', 'us-central1'); // 분류/추출
+  static const ModelSpec extractor = ModelSpec('gemini-3.5-flash-lite', 'global'); // 분류/추출
   static const ModelSpec tutor     = ModelSpec('gemini-3.5-flash', 'global');      // 학습자 대면 (양 조건 공용!)
   static const ModelSpec designer  = ModelSpec('gemini-3.5-flash', 'global');      // 교수설계 1단계
 }
@@ -266,7 +266,7 @@ final model = FirebaseAI.vertexAI(location: AiModels.extractor.location).generat
 ```
 
 > location 제약 (addie-tutor 프로젝트):
-> - `gemini-2.5-flash` → `us-central1` (global은 라우팅 불안정/404)
+> - `gemini-3.5-flash-lite` → `global` (분류·추출·판정용)
 > - `gemini-3.5-flash` → `global` 전용 (us-central1에서 404)
 > - `gemini-2.0-flash`(retired), `gemini-3-flash-preview` → 사용 불가 (404)
 >
