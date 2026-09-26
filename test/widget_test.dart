@@ -1,30 +1,47 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:research_chatbot/main.dart';
+import 'package:research_chatbot/providers/telemetry_provider.dart';
+import 'package:research_chatbot/screens/chat_screen.dart';
 
+/// 시작 화면: 이름을 넣어야 시작할 수 있고, 시작하면 참가자·시작 시각이 기록된다.
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  testWidgets('이름이 비어 있으면 시작 버튼이 비활성이다', (tester) async {
+    await tester.pumpWidget(const ProviderScope(child: MyApp()));
+    final button = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('start-button')),
+    );
+    expect(button.onPressed, isNull);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('이름을 넣고 시작하면 참가자가 기록되고 채팅 화면으로 넘어간다',
+      (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const MyApp()),
+    );
+    await tester.enterText(find.byKey(const ValueKey('participant-name')), ' P07 ');
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    final before = DateTime.now();
+    await tester.tap(find.byKey(const ValueKey('start-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChatScreen), findsOneWidget);
+    final participant = container.read(telemetryProvider).participant;
+    expect(participant, isNotNull);
+    expect(participant!.name, 'P07');
+    expect(participant.startedAt.isBefore(before), isFalse);
+    expect(
+      container.read(telemetryProvider).uiEvents.map((e) => e.type),
+      contains('experiment.start'),
+    );
   });
 }

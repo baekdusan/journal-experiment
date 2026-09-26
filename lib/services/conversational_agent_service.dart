@@ -4,6 +4,8 @@ import '../config/agent_prompts.dart';
 import '../config/ai_models.dart';
 import '../models/learning_state.dart';
 import '../models/learner_profile.dart';
+import '../models/telemetry.dart';
+import 'llm_call_recorder.dart';
 
 class AnalystResult {
   final String response;
@@ -16,6 +18,15 @@ class AnalystResult {
   /// 원값을 그대로 담는다 — 왜 값이 기각됐는지 로그에서 추적하기 위함이다.
   final Map<String, double> fieldConfidence;
 
+  /// 게이트 적용 전 모델이 뱉은 원 추출값·명시 플래그. 사후에 게이트가
+  /// 무엇을 걸러냈는지 복원하려면 필요하다.
+  final Map<String, dynamic> rawExtracted;
+  final Map<String, dynamic> rawExplicit;
+
+  /// 호출 기록(토큰·지연·raw JSON). 빈 응답 폴백이면 null.
+  final LlmCallRecord? call;
+  final bool fallback;
+
   AnalystResult({
     required this.response,
     this.subject,
@@ -23,6 +34,10 @@ class AnalystResult {
     this.level,
     this.tonePreference,
     this.fieldConfidence = const {},
+    this.rawExtracted = const {},
+    this.rawExplicit = const {},
+    this.call,
+    this.fallback = false,
   });
 }
 
@@ -33,6 +48,8 @@ class FeedbackResult {
   final bool needsRedesign;
   final bool explicitChange;
   final String? redesignRequest;
+  final LlmCallRecord? call;
+  final bool fallback;
 
   FeedbackResult({
     required this.response,
@@ -41,6 +58,8 @@ class FeedbackResult {
     this.redesignRequest,
     this.level,
     this.tonePreference,
+    this.call,
+    this.fallback = false,
   });
 }
 
@@ -160,12 +179,21 @@ class ConversationalAgentService {
     // ============================================================
     // 프롬프트 원문: lib/config/agent_prompts.dart → AgentPrompts.analyst
     final prompt = AgentPrompts.analyst(state, userText);
-    final response = await model.generateContent([Content.text(prompt)]);
+    final (:response, :call) = await recordedGenerate(
+      model: model,
+      spec: AiModels.extractor,
+      agent: 'analyst',
+      prompt: prompt,
+    );
     final raw = response.text;
 
     // 3-1. 응답 검증: 비어있으면 재시도 유도
     if (raw == null || raw.isEmpty) {
-      return AnalystResult(response: '조금 더 자세히 말씀해 주실 수 있을까요?');
+      return AnalystResult(
+        response: '조금 더 자세히 말씀해 주실 수 있을까요?',
+        call: call,
+        fallback: true,
+      );
     }
 
     // ============================================================
@@ -250,6 +278,9 @@ class ConversationalAgentService {
 
       // 게이트에 걸린 값도 추적할 수 있도록 원 확신도를 그대로 전달
       fieldConfidence: confidence,
+      rawExtracted: extracted,
+      rawExplicit: explicit,
+      call: call,
     );
   }
 
@@ -302,13 +333,20 @@ class ConversationalAgentService {
 
     // 프롬프트 원문: lib/config/agent_prompts.dart → AgentPrompts.feedback
     final prompt = AgentPrompts.feedback(state, userText, history);
-    final response = await model.generateContent([Content.text(prompt)]);
+    final (:response, :call) = await recordedGenerate(
+      model: model,
+      spec: AiModels.extractor,
+      agent: 'feedback',
+      prompt: prompt,
+    );
     final raw = response.text;
     if (raw == null || raw.isEmpty) {
       return FeedbackResult(
         response: '알겠어요. 필요한 부분을 조정해볼게요.',
         needsRedesign: false,
         explicitChange: false,
+        call: call,
+        fallback: true,
       );
     }
 
@@ -328,6 +366,7 @@ class ConversationalAgentService {
       tonePreference: update['tone_preference'] != null
           ? TonePreference.values.byName(update['tone_preference'] as String)
           : null,
+      call: call,
     );
   }
 

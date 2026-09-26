@@ -3,6 +3,8 @@ import 'package:firebase_ai/firebase_ai.dart';
 import '../models/instructional_design.dart';
 import '../config/agent_prompts.dart';
 import '../config/ai_models.dart';
+import '../models/telemetry.dart';
+import 'llm_call_recorder.dart';
 
 /// 단계 진행 평가 결과.
 class StepProgressResult {
@@ -11,10 +13,14 @@ class StepProgressResult {
 
   /// 판정 확신도 (0.0~1.0).
   final double confidence;
+  final LlmCallRecord? call;
+  final bool fallback;
 
   StepProgressResult({
     required this.stepCompleted,
     required this.confidence,
+    this.call,
+    this.fallback = false,
   });
 }
 
@@ -55,10 +61,16 @@ class StepProgressService {
       recentHistory: recentHistory,
     );
 
-    final response = await model.generateContent([Content.text(prompt)]);
+    final (:response, :call) = await recordedGenerate(
+      model: model,
+      spec: AiModels.extractor,
+      agent: 'stepProgress',
+      prompt: prompt,
+    );
     final raw = response.text;
     if (raw == null || raw.isEmpty) {
-      return StepProgressResult(stepCompleted: false, confidence: 0.0);
+      return StepProgressResult(
+          stepCompleted: false, confidence: 0.0, call: call, fallback: true);
     }
 
     try {
@@ -69,9 +81,11 @@ class StepProgressService {
       return StepProgressResult(
         stepCompleted: completed,
         confidence: confidence.clamp(0.0, 1.0),
+        call: call,
       );
     } catch (_) {
-      return StepProgressResult(stepCompleted: false, confidence: 0.0);
+      return StepProgressResult(
+          stepCompleted: false, confidence: 0.0, call: call, fallback: true);
     }
   }
 }

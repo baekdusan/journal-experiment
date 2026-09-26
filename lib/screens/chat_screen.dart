@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/chat_provider.dart';
+import '../providers/telemetry_provider.dart';
 import '../widgets/chat_view.dart';
 
 /// 채팅 앱의 메인 화면.
@@ -124,6 +125,8 @@ class _NewSessionButton extends ConsumerWidget {
   }
 
   Future<void> _onPressed(BuildContext context, WidgetRef ref) async {
+    final telemetry = ref.read(telemetryProvider.notifier);
+    telemetry.recordUi('reset.click', {'hasMessages': hasMessages});
     if (hasMessages) {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -142,6 +145,7 @@ class _NewSessionButton extends ConsumerWidget {
           ],
         ),
       );
+      telemetry.recordUi('reset.confirm', {'confirmed': confirmed == true});
       if (confirmed != true) return;
     }
     ref.read(chatControllerProvider.notifier).createNewSession();

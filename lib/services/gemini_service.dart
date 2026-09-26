@@ -1,6 +1,8 @@
 import 'package:firebase_ai/firebase_ai.dart';
 import '../models/message.dart';
 import '../config/ai_models.dart';
+import '../models/telemetry.dart';
+import 'llm_call_recorder.dart';
 
 /// Firebase AI(Vertex AI in Firebase)를 통해 학습자 대면 Gemini 모델과 통신하는 서비스.
 ///
@@ -28,7 +30,18 @@ class GeminiService {
     String? systemInstruction,
     void Function(List<String> searchQueries, List<String> sources)?
         onGrounding,
+    String agent = 'tutor',
+    void Function(LlmCallRecord call)? onCallComplete,
   }) async* {
+    final startedAt = DateTime.now();
+    DateTime? firstChunkAt;
+    var chunkCount = 0;
+    UsageMetadata? usage;
+    Candidate? lastCandidate;
+    final buffer = StringBuffer();
+    final historyChars =
+        history.fold<int>(0, (sum, m) => sum + m.content.length);
+
     // systemInstruction이 턴마다 달라질 수 있으므로 모델을 호출 시점에 생성한다.
     // (GenerativeModel은 클라이언트 측 설정 객체라 생성 비용이 사실상 없다.)
     final model =
@@ -53,27 +66,76 @@ class GeminiService {
     final searchQueries = <String>{};
     final sources = <String>{};
 
-    await for (final chunk in response) {
-      final metadata = chunk.candidates.isNotEmpty
-          ? chunk.candidates.first.groundingMetadata
-          : null;
-      if (metadata != null) {
-        searchQueries.addAll(metadata.webSearchQueries);
-        for (final grounding in metadata.groundingChunks) {
-          final web = grounding.web;
-          if (web != null) {
-            sources.add('${web.title ?? '(제목 없음)'} (${web.uri ?? '-'})');
+    try {
+      await for (final chunk in response) {
+        chunkCount += 1;
+        firstChunkAt ??= DateTime.now();
+        // usageMetadata·finishReason은 마지막 청크에 실려 오므로 계속 덮어쓴다.
+        if (chunk.usageMetadata != null) usage = chunk.usageMetadata;
+        if (chunk.candidates.isNotEmpty) lastCandidate = chunk.candidates.first;
+
+        final metadata = chunk.candidates.isNotEmpty
+            ? chunk.candidates.first.groundingMetadata
+            : null;
+        if (metadata != null) {
+          searchQueries.addAll(metadata.webSearchQueries);
+          for (final grounding in metadata.groundingChunks) {
+            final web = grounding.web;
+            if (web != null) {
+              sources.add('${web.title ?? '(제목 없음)'} (${web.uri ?? '-'})');
+            }
           }
         }
+        if (chunk.text != null) {
+          buffer.write(chunk.text!);
+          yield chunk.text!;
+        }
       }
-      if (chunk.text != null) {
-        yield chunk.text!;
-      }
+    } catch (e) {
+      onCallComplete?.call(buildCallRecord(
+        agent: agent,
+        spec: AiModels.tutor,
+        prompt: userText,
+        systemInstruction: systemInstruction,
+        startedAt: startedAt,
+        firstChunkAt: firstChunkAt,
+        completedAt: DateTime.now(),
+        chunkCount: chunkCount,
+        streaming: true,
+        historyLength: history.length,
+        historyChars: historyChars,
+        usage: usage,
+        candidate: lastCandidate,
+        responseText: buffer.toString(),
+        error: e.toString(),
+        searchQueries: searchQueries.toList(),
+        sources: sources.toList(),
+      ));
+      rethrow;
     }
 
     if (onGrounding != null &&
         (searchQueries.isNotEmpty || sources.isNotEmpty)) {
       onGrounding(searchQueries.toList(), sources.toList());
     }
+
+    onCallComplete?.call(buildCallRecord(
+      agent: agent,
+      spec: AiModels.tutor,
+      prompt: userText,
+      systemInstruction: systemInstruction,
+      startedAt: startedAt,
+      firstChunkAt: firstChunkAt,
+      completedAt: DateTime.now(),
+      chunkCount: chunkCount,
+      streaming: true,
+      historyLength: history.length,
+      historyChars: historyChars,
+      usage: usage,
+      candidate: lastCandidate,
+      responseText: buffer.toString(),
+      searchQueries: searchQueries.toList(),
+      sources: sources.toList(),
+    ));
   }
 }

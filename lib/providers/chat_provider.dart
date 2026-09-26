@@ -17,6 +17,9 @@ import '../services/step_progress_service.dart';
 import '../services/session_export_service.dart';
 import '../config/agent_prompts.dart';
 import '../config/experiment_config.dart';
+import '../models/telemetry.dart';
+import '../providers/telemetry_provider.dart';
+import '../services/llm_call_recorder.dart';
 
 part 'chat_provider.g.dart';
 
@@ -242,7 +245,20 @@ class ChatController extends _$ChatController {
   ///    - 완료 후? → Analyst Flow (새 학습 시작)
   ///    - 준비 안됨? → Analyst Flow (정보 수집)
   ///    - 준비 완료? → Intent 분류 → Tutor/Feedback Flow
-  Future<void> sendMessage(String text) async {
+  /// 시작 화면의 시작 버튼. 대화·학습 상태·텔레메트리를 모두 초기화한 뒤
+  /// 참가자를 기록하고 시간 측정을 시작한다.
+  void startExperiment(String participantName) {
+    createNewSession();
+    ref.read(telemetryProvider.notifier).startExperiment(
+          name: participantName,
+          station: ExperimentConfig.station,
+        );
+  }
+
+  Future<void> sendMessage(
+    String text, {
+    ComposeMeta compose = const ComposeMeta(),
+  }) async {
     // ============================================================
     // 0. 진입 가드: 이미 LLM 호출이 진행 중이면 무시
     // ============================================================
@@ -255,14 +271,30 @@ class ChatController extends _$ChatController {
 
     _enter();
     try {
-      await _sendMessageImpl(text);
+      await _sendMessageImpl(text, compose);
     } finally {
+      final turn = _turnCounter;
+      ref.read(telemetryProvider.notifier).updateTurn(
+            turn,
+            (t) => t.copyWith(
+              stepIndexAfter: ref.read(learningStateProvider).currentStepIndex,
+            ),
+          );
       _exit();
     }
   }
 
-  Future<void> _sendMessageImpl(String text) async {
+  Future<void> _sendMessageImpl(String text, ComposeMeta compose) async {
     _turnCounter += 1;
+    final telemetry = ref.read(telemetryProvider.notifier);
+    telemetry.beginTurn(TurnRecord(
+      turn: _turnCounter,
+      sentAt: DateTime.now(),
+      userText: text,
+      compose: compose,
+      previousResponseCompletedAt: telemetry.lastResponseCompletedAt,
+      stepIndexBefore: ref.read(learningStateProvider).currentStepIndex,
+    ));
     final activeId = ref.read(activeSessionIdProvider);
     final sessions = ref.read(chatSessionsProvider);
 
@@ -296,7 +328,14 @@ class ChatController extends _$ChatController {
     }
 
     // 사용자 메시지를 세션에 추가
-    _appendMessage(session.id, Message(role: MessageRole.user, content: text));
+    _appendMessage(
+      session.id,
+      Message(
+        role: MessageRole.user,
+        content: text,
+        meta: {'turn': _turnCounter, 'compose': compose.toJson()},
+      ),
+    );
 
     // ============================================================
     // 실험 대조군(free form): 구조화 라우팅을 모두 건너뛰고
@@ -304,6 +343,7 @@ class ChatController extends _$ChatController {
     // ============================================================
     if (ExperimentConfig.isControl) {
       _log('condition', {'turn': _turnCounter, 'value': 'control'});
+      _setRoute('freeform');
       await _runFreeformFlow(session.id, text);
       return;
     }
@@ -331,6 +371,8 @@ class ChatController extends _$ChatController {
 
     // 3-1. 설계 중이면 무시 (중복 요청 방지)
     if (learning.isDesigning) {
+      _log('turn.ignored', {'turn': _turnCounter, 'reason': 'designing'});
+      _setRoute('ignored.designing');
       return;
     }
 
@@ -351,19 +393,29 @@ class ChatController extends _$ChatController {
     // 3-4. 준비 완료 → Intent 분류 후 Tutor/Feedback 선택
     final intentService = ref.read(intentClassifierServiceProvider);
     final previousTutorMessage = _getLastTutorMessage(session.id);
-    final intent = await intentService.classify(
+    final classification = await intentService.classify(
       text,
       previousTutorMessage: previousTutorMessage,
     );
+    final intent = classification.intent;
+    _recordCall(classification.call);
     _log('intent', {
       'turn': _turnCounter,
       'value': intent.name,
+      'fallback': classification.fallback,
+      'callId': classification.call.id,
     });
+    ref.read(telemetryProvider.notifier).updateTurn(
+          _turnCounter,
+          (t) => t.copyWith(intent: intent.name),
+        );
 
     // Intent 결과에 따라 분기
     if (intent == IntentResult.inClass) {
+      _setRoute('tutor');
       await _runTutorFlow(session.id, text);  // 수업 내 발화 → 튜터링
     } else {
+      _setRoute('feedback');
       await _runFeedbackFlow(session.id, text);  // 수업 외 발화 → 피드백
     }
   }
@@ -377,6 +429,7 @@ class ChatController extends _$ChatController {
     ref.read(activeSessionIdProvider.notifier).set(null);
     ref.read(streamingMessageProvider.notifier).clear();
     _turnCounter = 0;
+    ref.read(telemetryProvider.notifier).reset();
     unawaited(ref.read(learningStateProvider.notifier).reset());
   }
 
@@ -394,8 +447,15 @@ class ChatController extends _$ChatController {
 
       final learningState = ref.read(learningStateProvider);
       final exportService = ref.read(sessionExportServiceProvider);
+      final telemetryNotifier = ref.read(telemetryProvider.notifier);
+      telemetryNotifier.recordUi('export', {'sessionId': sessionId});
+      telemetryNotifier.markExported();
 
-      await exportService.exportSession(session, learningState);
+      await exportService.exportSession(
+        session,
+        learningState,
+        ref.read(telemetryProvider),
+      );
     } catch (e) {
       throw Exception('세션 다운로드 실패: $e');
     }
@@ -432,6 +492,7 @@ class ChatController extends _$ChatController {
     if (!forceAnalyst &&
         previous.learnerProfile.isLearnerProfileFilled &&
         previous.instructionalDesign.isDesignFilled) {
+      _setRoute('feedback');
       await _runFeedbackFlow(sessionId, userText);
       return;
     }
@@ -440,6 +501,7 @@ class ChatController extends _$ChatController {
     if (!forceAnalyst &&
         previous.learnerProfile.isLearnerProfileFilled &&
         !previous.instructionalDesign.isDesignFilled) {
+      _setRoute('design');
       _startSyllabusDesign(sessionId, isRedesign: false);
       return;
     }
@@ -449,7 +511,9 @@ class ChatController extends _$ChatController {
     // ============================================================
     final agent = ref.read(conversationalAgentServiceProvider);
     try {
+      _setRoute('analyst');
       final result = await agent.runAnalyst(previous, userText);
+      if (result.call != null) _recordCall(result.call!);
       _log('analyst.extract', {
         'turn': _turnCounter,
         'subject': result.subject,
@@ -458,6 +522,10 @@ class ChatController extends _$ChatController {
         'tone': result.tonePreference?.name,
         // 게이트에 걸려 null이 된 필드를 구분하기 위해 원 확신도를 함께 남긴다.
         'confidence': result.fieldConfidence,
+        'rawExtracted': result.rawExtracted,
+        'rawExplicit': result.rawExplicit,
+        'fallback': result.fallback,
+        'callId': result.call?.id,
       });
 
       // ============================================================
@@ -511,26 +579,48 @@ class ChatController extends _$ChatController {
       // 로드맵 UI는 [ExperimentConfig.showLearningRoadmap]=false로 숨겨져 있어,
       // 보이지도 않는 것을 예고하면 학습자가 찾아 헤매게 되기 때문이다
       // (주 종속변수인 지각된 방향상실을 인위적으로 올린다).
+      final analystMeta = <String, dynamic>{
+        'agent': 'analyst',
+        'turn': _turnCounter,
+        'callId': result.call?.id,
+        'fallback': result.fallback,
+        'triggeredDesign': shouldTriggerDesign,
+      };
       if (shouldTriggerDesign) {
         _appendAssistantMessage(
           sessionId,
           '좋아요. 필요한 정보를 확인했어요. 학습 순서를 정하고 바로 수업을 시작할게요.',
+          meta: {...analystMeta, 'scripted': true},
         );
       } else {
         final safeResponse = _sanitizeAnalystResponse(
           response: result.response,
           state: updated,
         );
-        _appendAssistantMessage(sessionId, safeResponse);
+        final sanitized = safeResponse != result.response.trim();
+        _appendAssistantMessage(
+          sessionId,
+          safeResponse,
+          meta: {
+            ...analystMeta,
+            'sanitized': sanitized,
+            'originalResponse': sanitized ? result.response : null,
+          },
+        );
       }
+      _markResponseCompleted(chars: 0);
 
       if (shouldTriggerDesign) {
         _startSyllabusDesign(sessionId, isRedesign: false);
       }
     } catch (e, st) {
-      _log('analyst.error', {'error': e.toString()});
+      _recordFailure('analyst', e);
       debugPrint('[Analyst ERROR] $e\n$st');
-      _appendSystemMessage(sessionId, '요청을 처리하는 중 오류가 발생했어요. 다시 시도해 주세요.');
+      _appendSystemMessage(
+        sessionId,
+        '요청을 처리하는 중 오류가 발생했어요. 다시 시도해 주세요.',
+        flow: 'analyst',
+      );
     }
   }
 
@@ -556,10 +646,15 @@ class ChatController extends _$ChatController {
   /// - JSON이 아닌 자연어 생성
   /// - 실시간 스트리밍으로 사용자 경험 향상
   /// - 대화 히스토리를 컨텍스트로 전달
-  Future<void> _runTutorFlow(String sessionId, String userText) async {
+  Future<void> _runTutorFlow(
+    String sessionId,
+    String userText, {
+    String trigger = 'user',
+  }) async {
     final learning = ref.read(learningStateProvider);
     final agent = ref.read(conversationalAgentServiceProvider);
     String? assistantId;
+    LlmCallRecord? call;
     try {
       // ============================================================
       // 1. 시스템 프롬프트 생성 (매 턴 상태 반영 재빌드)
@@ -592,6 +687,11 @@ class ChatController extends _$ChatController {
         systemInstruction: systemInstruction,
         onGrounding: (queries, sources) =>
             _logGrounding(sessionId, 'tutor', queries, sources),
+        agent: 'tutor',
+        onCallComplete: (c) {
+          call = c;
+          _recordCall(c);
+        },
       );
 
       // ============================================================
@@ -618,13 +718,18 @@ class ChatController extends _$ChatController {
       final finalMessages = [
         for (final m in finalSession.messages)
           if (m.id == assistantId)
-            m.copyWith(content: fullResponse, isStreaming: false)
+            m.copyWith(
+              content: fullResponse,
+              isStreaming: false,
+              meta: _streamMeta('tutor', trigger, call),
+            )
           else
             m,
       ];
       ref
           .read(chatSessionsProvider.notifier)
           .updateSession(finalSession.copyWith(messages: finalMessages));
+      _markResponseCompleted(call: call, chars: fullResponse.length);
 
       // ============================================================
       // 6. designReady 플래그 정리 (설계 완료 안내 숨김)
@@ -646,6 +751,7 @@ class ChatController extends _$ChatController {
       // ============================================================
       // 스트리밍 상태 정리
       ref.read(streamingMessageProvider.notifier).clear();
+      _recordFailure('tutor', e);
 
       if (assistantId != null) {
         final sessions = ref.read(chatSessionsProvider);
@@ -656,6 +762,11 @@ class ChatController extends _$ChatController {
               m.copyWith(
                 content: '응답 생성 중 오류가 발생했어요. 다시 시도해 주세요.',
                 isStreaming: false,
+                meta: {
+                  ..._streamMeta('tutor', trigger, call),
+                  'kind': 'error',
+                  'error': e.toString(),
+                },
               )
             else
               m,
@@ -664,7 +775,11 @@ class ChatController extends _$ChatController {
             .read(chatSessionsProvider.notifier)
             .updateSession(session.copyWith(messages: updatedMessages));
       } else {
-        _appendSystemMessage(sessionId, '튜터 응답을 생성하는 중 오류가 발생했어요.');
+        _appendSystemMessage(
+          sessionId,
+          '튜터 응답을 생성하는 중 오류가 발생했어요.',
+          flow: 'tutor',
+        );
       }
     }
   }
@@ -678,6 +793,7 @@ class ChatController extends _$ChatController {
   /// 처치군 Tutor와 동일하게 통제된다 (GeminiService 공용).
   Future<void> _runFreeformFlow(String sessionId, String userText) async {
     String? assistantId;
+    LlmCallRecord? call;
     try {
       assistantId = const Uuid().v4();
       _appendMessage(
@@ -698,6 +814,11 @@ class ChatController extends _$ChatController {
         userText,
         onGrounding: (queries, sources) =>
             _logGrounding(sessionId, 'freeform', queries, sources),
+        agent: 'freeform',
+        onCallComplete: (c) {
+          call = c;
+          _recordCall(c);
+        },
       );
 
       ref.read(streamingMessageProvider.notifier).start(assistantId);
@@ -715,15 +836,21 @@ class ChatController extends _$ChatController {
       final finalMessages = [
         for (final m in finalSession.messages)
           if (m.id == assistantId)
-            m.copyWith(content: fullResponse, isStreaming: false)
+            m.copyWith(
+              content: fullResponse,
+              isStreaming: false,
+              meta: _streamMeta('freeform', 'user', call),
+            )
           else
             m,
       ];
       ref
           .read(chatSessionsProvider.notifier)
           .updateSession(finalSession.copyWith(messages: finalMessages));
+      _markResponseCompleted(call: call, chars: fullResponse.length);
     } catch (e) {
       ref.read(streamingMessageProvider.notifier).clear();
+      _recordFailure('freeform', e);
       if (assistantId != null) {
         final sessions = ref.read(chatSessionsProvider);
         final session = sessions.firstWhere((s) => s.id == sessionId);
@@ -733,6 +860,11 @@ class ChatController extends _$ChatController {
               m.copyWith(
                 content: '응답 생성 중 오류가 발생했어요. 다시 시도해 주세요.',
                 isStreaming: false,
+                meta: {
+                  ..._streamMeta('freeform', 'user', call),
+                  'kind': 'error',
+                  'error': e.toString(),
+                },
               )
             else
               m,
@@ -741,9 +873,12 @@ class ChatController extends _$ChatController {
             .read(chatSessionsProvider.notifier)
             .updateSession(session.copyWith(messages: updatedMessages));
       } else {
-        _appendSystemMessage(sessionId, '응답을 생성하는 중 오류가 발생했어요.');
+        _appendSystemMessage(
+          sessionId,
+          '응답을 생성하는 중 오류가 발생했어요.',
+          flow: 'freeform',
+        );
       }
-      _log('freeform.error', {'error': e.toString()});
     }
   }
 
@@ -772,11 +907,15 @@ class ChatController extends _$ChatController {
         recentHistory: history,
       );
 
+      if (result.call != null) _recordCall(result.call!);
       _log('step.progress', {
         'turn': _turnCounter,
         'index': learning.currentStepIndex,
         'completed': result.stepCompleted,
         'confidence': result.confidence,
+        'advanced': result.stepCompleted && result.confidence >= 0.6,
+        'fallback': result.fallback,
+        'callId': result.call?.id,
       });
 
       if (!result.stepCompleted || result.confidence < 0.6) return;
@@ -791,7 +930,11 @@ class ChatController extends _$ChatController {
         // 마무리 발화를 한 번 더 돌려 종료 사실·정리·다음 안내를 튜터가 직접
         // 말하게 한다(설계 완료 후 자동으로 수업을 시작하는 것과 같은 방식).
         // 재귀는 없다 — 이 턴의 StepProgress는 isCourseCompleted에서 즉시 반환한다.
-        await _runTutorFlow(sessionId, AgentPrompts.courseClosingCue);
+        await _runTutorFlow(
+          sessionId,
+          AgentPrompts.courseClosingCue,
+          trigger: 'course.closing',
+        );
       } else {
         final next = learning.currentStepIndex + 1;
         await ref.read(learningStateProvider.notifier).setCurrentStep(next);
@@ -802,7 +945,7 @@ class ChatController extends _$ChatController {
       }
     } catch (e) {
       // 진행 평가 실패는 수업 흐름을 막지 않는다 (graceful degradation).
-      _log('step.progress.error', {'error': e.toString()});
+      _recordFailure('stepProgress', e);
     }
   }
 
@@ -842,12 +985,27 @@ class ChatController extends _$ChatController {
       // 2. Feedback Agent 호출: 피드백 분석 (비스트리밍, JSON)
       // ============================================================
       final result = await agent.runFeedback(learning, userText, history);
-      _appendAssistantMessage(sessionId, result.response);
+      if (result.call != null) _recordCall(result.call!);
+      _appendAssistantMessage(
+        sessionId,
+        result.response,
+        meta: {
+          'agent': 'feedback',
+          'turn': _turnCounter,
+          'callId': result.call?.id,
+          'fallback': result.fallback,
+        },
+      );
+      _markResponseCompleted(chars: result.response.length);
       _log('feedback.result', {
         'turn': _turnCounter,
         'needsRedesign': result.needsRedesign,
         'explicitChange': result.explicitChange,
         'redesignRequest': result.redesignRequest,
+        'level': result.level?.name,
+        'tonePreference': result.tonePreference?.name,
+        'fallback': result.fallback,
+        'callId': result.call?.id,
       });
 
       // ============================================================
@@ -887,7 +1045,12 @@ class ChatController extends _$ChatController {
         _log('feedback.ignored_redesign', {'reason': 'not_explicit'});
       }
     } catch (e) {
-      _appendSystemMessage(sessionId, '피드백을 처리하는 중 오류가 발생했어요.');
+      _recordFailure('feedback', e);
+      _appendSystemMessage(
+        sessionId,
+        '피드백을 처리하는 중 오류가 발생했어요.',
+        flow: 'feedback',
+      );
     }
   }
 
@@ -958,6 +1121,8 @@ class ChatController extends _$ChatController {
     // 따라서 Future 자체를 `_enter`/`_exit` 쌍으로 감싸 isProcessing이
     // design + 자동 Tutor 스트리밍이 끝날 때까지 true로 유지되도록 한다.
     _enter();
+    final designTurn = _turnCounter;
+    final designStartedAt = DateTime.now();
     Future(() async {
       try {
         // 설계자는 Google Search grounding으로 기존 커리큘럼·시험 범위를
@@ -968,13 +1133,21 @@ class ChatController extends _$ChatController {
           redesignRequest: redesignRequest,
         );
         final syllabus = result.syllabus;
+        for (final c in result.calls) {
+          _recordCall(c, turn: designTurn);
+        }
 
         _log('design.generated', {
-          'turn': _turnCounter,
+          'turn': designTurn,
+          'isRedesign': isRedesign,
           'steps': syllabus.length,
           'topics': syllabus.map((step) => step.topic).toList(),
           'searchQueries': result.searchQueries,
           'sources': result.sources,
+          'draftChars': result.draft.length,
+          'durationMs':
+              DateTime.now().difference(designStartedAt).inMilliseconds,
+          'callIds': result.calls.map((c) => c.id).toList(),
         });
         if (result.searchQueries.isNotEmpty || result.sources.isNotEmpty) {
           _logGrounding(
@@ -1005,13 +1178,21 @@ class ChatController extends _$ChatController {
         // ============================================================
         // 5. 완료 후 자동으로 수업 시작
         // ============================================================
-        await _runTutorFlow(sessionId, '수업을 시작해줘');
+        await _runTutorFlow(
+          sessionId,
+          '수업을 시작해줘',
+          trigger: 'design.autostart',
+        );
       } catch (e) {
-        _log('design.error', {'error': e.toString()});
+        _recordFailure('design', e, turn: designTurn);
         await ref
             .read(learningStateProvider.notifier)
             .setDesigning(false);
-        _appendSystemMessage(sessionId, '학습 준비에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        _appendSystemMessage(
+          sessionId,
+          '학습 준비에 실패했어요. 잠시 후 다시 시도해 주세요.',
+          flow: 'design',
+        );
       } finally {
         _exit();
       }
@@ -1023,14 +1204,103 @@ class ChatController extends _$ChatController {
   /// ============================================================
 
   /// AI 응답 메시지 추가 (Analyst/Feedback Flow에서 사용)
-  void _appendAssistantMessage(String sessionId, String content) {
-    _appendMessage(sessionId, Message(role: MessageRole.model, content: content));
+  void _appendAssistantMessage(
+    String sessionId,
+    String content, {
+    Map<String, dynamic> meta = const {},
+  }) {
+    _appendMessage(
+      sessionId,
+      Message(role: MessageRole.model, content: content, meta: meta),
+    );
   }
 
   /// 시스템 에러 메시지 추가 (예외 처리 시 사용)
-  void _appendSystemMessage(String sessionId, String content) {
-    _appendMessage(sessionId, Message(role: MessageRole.system, content: content));
+  void _appendSystemMessage(
+    String sessionId,
+    String content, {
+    String? flow,
+  }) {
+    _appendMessage(
+      sessionId,
+      Message(
+        role: MessageRole.system,
+        content: content,
+        meta: {'kind': 'error', 'flow': flow, 'turn': _turnCounter},
+      ),
+    );
   }
+
+  // ============================================================
+  // 텔레메트리 헬퍼
+  // ============================================================
+
+  void _recordCall(LlmCallRecord call, {int? turn}) {
+    ref
+        .read(telemetryProvider.notifier)
+        .recordCall(call, turn: turn ?? _turnCounter);
+  }
+
+  /// 흐름 실패를 기록한다. [LlmCallException]이면 실패한 호출 기록도 남긴다.
+  void _recordFailure(String flow, Object error, {int? turn}) {
+    final t = turn ?? _turnCounter;
+    if (error is LlmCallException) {
+      _recordCall(error.call, turn: t);
+    }
+    _log('$flow.error', {
+      'turn': t,
+      'error': error.toString(),
+      'callId': error is LlmCallException ? error.call.id : null,
+    });
+    ref.read(telemetryProvider.notifier).updateTurn(
+          t,
+          (r) => r.copyWith(error: '$flow: $error'),
+        );
+  }
+
+  void _setRoute(String route) {
+    ref.read(telemetryProvider.notifier).updateTurn(
+          _turnCounter,
+          (t) => t.copyWith(route: route),
+        );
+  }
+
+  /// 학습자 대면 응답이 끝났음을 현재 턴에 기록한다.
+  ///
+  /// 한 턴에 응답이 둘일 수 있다(설계 자동 시작, 마무리 발화). 시작·첫 청크는
+  /// 첫 응답 값을 지키고, 완료 시각은 마지막 응답으로 덮어쓰며 글자 수는 더한다.
+  void _markResponseCompleted({LlmCallRecord? call, required int chars}) {
+    final now = DateTime.now();
+    ref.read(telemetryProvider.notifier).updateTurn(
+          _turnCounter,
+          (t) => t.copyWith(
+            responseStartedAt: t.responseStartedAt ?? call?.startedAt ?? now,
+            firstChunkAt: t.firstChunkAt ?? call?.firstChunkAt ?? now,
+            responseCompletedAt: call?.completedAt ?? now,
+            responseChars: (t.responseChars ?? 0) + chars,
+            llmCallIds: call == null ? null : [...t.llmCallIds, call.id],
+          ),
+        );
+  }
+
+  Map<String, dynamic> _streamMeta(
+    String agent,
+    String trigger,
+    LlmCallRecord? call,
+  ) =>
+      {
+        'agent': agent,
+        'turn': _turnCounter,
+        'trigger': trigger,
+        'streaming': true,
+        'callId': call?.id,
+        'startedAt': call?.startedAt.toIso8601String(),
+        'firstChunkAt': call?.firstChunkAt?.toIso8601String(),
+        'completedAt': call?.completedAt.toIso8601String(),
+        'chunkCount': call?.chunkCount,
+        'finishReason': call?.finishReason,
+        'usage': call == null ? null : call.toJson()['usage'],
+      };
 
   /// 메시지를 세션에 추가하고 상태 업데이트
   void _appendMessage(String sessionId, Message message) {
@@ -1253,7 +1523,14 @@ class ChatController extends _$ChatController {
   /// - feedback.result: Feedback 처리 결과
   /// - design.start/generated/error: 커리큘럼 생성 과정
   void _log(String event, Map<String, dynamic> data) {
-    final payload = const JsonEncoder.withIndent('  ').convert(data);
-    debugPrint('[Flow] $event\n$payload\n');
+    ref.read(telemetryProvider.notifier).recordFlow(
+          event,
+          data,
+          turn: data['turn'] is int ? data['turn'] as int : _turnCounter,
+        );
+    if (kDebugMode) {
+      final payload = const JsonEncoder.withIndent('  ').convert(data);
+      debugPrint('[Flow] $event\n$payload\n');
+    }
   }
 }

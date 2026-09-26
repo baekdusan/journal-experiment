@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/telemetry.dart';
 import '../providers/chat_provider.dart';
 import '../providers/learning_state_provider.dart';
 
@@ -19,10 +20,49 @@ class _ChatInputState extends State<ChatInput> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
 
+  // 작성 행동 추적(전송마다 초기화). 사후 분석의 읽기·작성 시간 산출용.
+  DateTime? _focusedAt;
+  DateTime? _firstKeyAt;
+  int _editCount = 0;
+  int _maxLength = 0;
+  String _lastText = '';
+
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() => setState(() {}));
+    _controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onTextChanged() {
+    final text = _controller.text;
+    if (text != _lastText) {
+      _lastText = text;
+      if (text.isNotEmpty) {
+        _editCount += 1;
+        _firstKeyAt ??= DateTime.now();
+        if (text.length > _maxLength) _maxLength = text.length;
+      }
+    }
+    setState(() {});
+  }
+
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus) _focusedAt ??= DateTime.now();
+  }
+
+  ComposeMeta _takeComposeMeta() {
+    final meta = ComposeMeta(
+      focusedAt: _focusedAt,
+      firstKeyAt: _firstKeyAt,
+      editCount: _editCount,
+      maxLength: _maxLength,
+    );
+    _focusedAt = null;
+    _firstKeyAt = null;
+    _editCount = 0;
+    _maxLength = 0;
+    return meta;
   }
 
   @override
@@ -51,7 +91,9 @@ class _ChatInputState extends State<ChatInput> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    ref.read(chatControllerProvider.notifier).sendMessage(text);
+    ref
+        .read(chatControllerProvider.notifier)
+        .sendMessage(text, compose: _takeComposeMeta());
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;

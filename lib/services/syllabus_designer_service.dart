@@ -4,6 +4,8 @@ import '../models/learner_profile.dart';
 import '../models/instructional_design.dart';
 import '../config/agent_prompts.dart';
 import '../config/ai_models.dart';
+import '../models/telemetry.dart';
+import 'llm_call_recorder.dart';
 
 /// 커리큘럼(Syllabus) 생성 Micro-Agent.
 ///
@@ -23,6 +25,8 @@ class SyllabusDesignerService {
         List<Step> syllabus,
         List<String> searchQueries,
         List<String> sources,
+        String draft,
+        List<LlmCallRecord> calls,
       })> generate(
     LearnerProfile profile, {
     String? redesignRequest,
@@ -42,24 +46,29 @@ class SyllabusDesignerService {
       profile,
       redesignRequest: redesignRequest,
     );
-    final researchResponse =
-        await researchModel.generateContent([Content.text(researchPrompt)]);
+    final research = await recordedGenerate(
+      model: researchModel,
+      spec: AiModels.designer,
+      agent: 'designer.research',
+      prompt: researchPrompt,
+    );
+    final researchResponse = research.response;
     final draft = researchResponse.text;
     if (draft == null || draft.trim().isEmpty) {
-      throw StateError('Empty syllabus research response');
+      throw LlmCallException(
+          StateError('Empty syllabus research response'), research.call);
     }
 
     // grounding 발동 정보 수집 (검색어 + 근거 소스)
-    final metadata = researchResponse.candidates.isNotEmpty
-        ? researchResponse.candidates.first.groundingMetadata
-        : null;
-    final searchQueries = metadata?.webSearchQueries ?? const <String>[];
-    final sources = <String>[
-      if (metadata != null)
-        for (final grounding in metadata.groundingChunks)
-          if (grounding.web != null)
-            '${grounding.web!.title ?? '(제목 없음)'} (${grounding.web!.uri ?? '-'})',
-    ];
+    final grounding = extractGrounding(researchResponse.candidates.isNotEmpty
+        ? researchResponse.candidates.first
+        : null);
+    final searchQueries = grounding.queries;
+    final sources = grounding.sources;
+    final researchCall = research.call.copyWith(
+      searchQueries: searchQueries,
+      sources: sources,
+    );
 
     // ========================================================================
     // 2단계: 초안 텍스트 → JSON 구조화 (responseSchema 강제)
@@ -91,17 +100,23 @@ class SyllabusDesignerService {
     );
 
     // 프롬프트 원문: lib/config/agent_prompts.dart → AgentPrompts.syllabusStructure
-    final structureResponse = await structureModel
-        .generateContent([Content.text(AgentPrompts.syllabusStructure(draft))]);
-    final raw = structureResponse.text;
+    final structure = await recordedGenerate(
+      model: structureModel,
+      spec: AiModels.extractor,
+      agent: 'designer.structure',
+      prompt: AgentPrompts.syllabusStructure(draft),
+    );
+    final raw = structure.response.text;
     if (raw == null || raw.isEmpty) {
-      throw StateError('Empty syllabus structure response');
+      throw LlmCallException(
+          StateError('Empty syllabus structure response'), structure.call);
     }
 
     final data = jsonDecode(raw) as Map<String, dynamic>;
     final syllabusList = data['syllabus'];
     if (syllabusList is! List || syllabusList.isEmpty) {
-      throw StateError('Invalid syllabus response');
+      throw LlmCallException(
+          StateError('Invalid syllabus response'), structure.call);
     }
     final syllabus = syllabusList
         .map((item) => Step.fromJson(item as Map<String, dynamic>))
@@ -111,6 +126,8 @@ class SyllabusDesignerService {
       syllabus: syllabus,
       searchQueries: searchQueries,
       sources: sources,
+      draft: draft,
+      calls: [researchCall, structure.call],
     );
   }
 }

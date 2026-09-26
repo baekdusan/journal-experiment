@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:firebase_ai/firebase_ai.dart';
 import '../config/agent_prompts.dart';
 import '../config/ai_models.dart';
+import '../models/telemetry.dart';
+import 'llm_call_recorder.dart';
 
 enum IntentResult {
   inClass,
@@ -12,8 +14,20 @@ enum IntentResult {
   }
 }
 
+/// 분류 결과 + 호출 기록. 파싱 실패로 기본값이 쓰였는지도 남긴다.
+class IntentClassification {
+  final IntentResult intent;
+  final LlmCallRecord call;
+  final bool fallback;
+  IntentClassification({
+    required this.intent,
+    required this.call,
+    this.fallback = false,
+  });
+}
+
 class IntentClassifierService {
-  Future<IntentResult> classify(
+  Future<IntentClassification> classify(
     String userText, {
     String? previousTutorMessage,
   }) async {
@@ -38,19 +52,30 @@ class IntentClassifierService {
 
     // 프롬프트 원문: lib/config/agent_prompts.dart → AgentPrompts.intentClassifier
     final prompt = AgentPrompts.intentClassifier(userText, previousTutorMessage);
-    final response = await model.generateContent([Content.text(prompt)]);
+    final (:response, :call) = await recordedGenerate(
+      model: model,
+      spec: AiModels.extractor,
+      agent: 'intent',
+      prompt: prompt,
+    );
     final raw = response.text;
     if (raw == null || raw.isEmpty) {
-      return IntentResult.inClass;
+      return IntentClassification(
+          intent: IntentResult.inClass, call: call, fallback: true);
     }
 
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final intent = data['intent'] as String?;
-      if (intent == null) return IntentResult.inClass;
-      return IntentResult.fromJson(intent);
+      if (intent == null) {
+        return IntentClassification(
+            intent: IntentResult.inClass, call: call, fallback: true);
+      }
+      return IntentClassification(
+          intent: IntentResult.fromJson(intent), call: call);
     } catch (_) {
-      return IntentResult.inClass;
+      return IntentClassification(
+          intent: IntentResult.inClass, call: call, fallback: true);
     }
   }
 

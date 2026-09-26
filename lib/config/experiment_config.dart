@@ -52,4 +52,27 @@ class ExperimentConfig {
 
   /// 로그/내보내기에 기록할 조건 라벨.
   static String get conditionLabel => condition.name;
+
+  /// 현장 PC 식별자 (`?pc=A` 또는 `?station=A`). 두 대를 동시에 돌릴 때
+  /// 파일이 어느 컴퓨터에서 나왔는지 구분한다. 없으면 null.
+  static String? get station {
+    final q = Uri.base.queryParameters;
+    final v = (q['pc'] ?? q['station'])?.trim();
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  /// 시작 화면의 이름 칸을 미리 채울 값 (`?pid=P07`). 없으면 빈 칸.
+  static String? get participantIdFromUrl {
+    final v = Uri.base.queryParameters['pid']?.trim();
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  /// 빌드 시 주입되는 git 커밋 해시.
+  /// `flutter build web --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD)`
+  static const String buildCommit =
+      String.fromEnvironment('BUILD_COMMIT', defaultValue: 'unknown');
+
+  /// pubspec 버전과 같은 값을 빌드 시 넣는다. 미지정이면 unknown.
+  static const String buildVersion =
+      String.fromEnvironment('BUILD_VERSION', defaultValue: 'unknown');
 }

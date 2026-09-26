@@ -29,12 +29,20 @@ class Message {
   /// 로딩 인디케이터를 표시하는 데 활용할 수 있다.
   final bool isStreaming;
 
+  /// 분석용 부가 정보. 화면에는 쓰이지 않고 내보내기 파일에만 실린다.
+  ///
+  /// - user: turn, chars, compose(작성 행동)
+  /// - model: agent, turn, streaming, startedAt/firstChunkAt/completedAt, chunkCount, callId
+  /// - system: kind(error 등), flow
+  final Map<String, dynamic> meta;
+
   Message({
     String? id,
     required this.role,
     required this.content,
     DateTime? timestamp,
     this.isStreaming = false,
+    this.meta = const {},
   }) : id = id ?? const Uuid().v4(),
        timestamp = timestamp ?? DateTime.now();
 
@@ -48,6 +56,7 @@ class Message {
     String? content,
     DateTime? timestamp,
     bool? isStreaming,
+    Map<String, dynamic>? meta,
   }) {
     return Message(
       id: id ?? this.id,
@@ -55,6 +64,7 @@ class Message {
       content: content ?? this.content,
       timestamp: timestamp ?? this.timestamp,
       isStreaming: isStreaming ?? this.isStreaming,
+      meta: meta ?? this.meta,
     );
   }
 
@@ -68,6 +78,8 @@ class Message {
       'role': role.toJson(),
       'content': content,
       'timestamp': timestamp.toIso8601String(),
+      'chars': content.length,
+      'meta': meta,
     };
   }
 
@@ -81,6 +93,7 @@ class Message {
       role: MessageRole.fromJson(json['role']),
       content: json['content'],
       timestamp: DateTime.parse(json['timestamp']),
+      meta: (json['meta'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
   }
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-import 'screens/chat_screen.dart';
+import 'screens/start_screen.dart';
 
 /// Firebase를 초기화하고 앱을 시작하는 진입점.
 ///
@@ -113,7 +113,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const ChatScreen(),
+      home: const StartScreen(),
     );
   }
 }

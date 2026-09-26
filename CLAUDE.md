@@ -11,6 +11,8 @@ ADDIE 모델 기반 적응형 학습 튜터 시스템. Flutter Web + Firebase AI
 - 대조군(control): 시스템 프롬프트 없는 순수 모델 (`_runFreeformFlow`, 라우팅 전부 건너뜀)
 - 자료 취득은 로컬 캐시 없이 **`Tool.googleSearch()` grounding**만 사용. 검색을 가진 에이전트는 Syllabus Designer 1단계와 학습자 대면 스트리밍(GeminiService) 둘뿐.
 - 모든 에이전트 프롬프트는 `lib/config/agent_prompts.dart`에 중앙화.
+- 앱은 **시작 화면(참가자 이름 + 시작 버튼)** 으로 시작한다. 시작 버튼이 t=0이며 대화·학습 상태·텔레메트리를 초기화한다 (`start_screen.dart` → `ChatController.startExperiment`).
+- **텔레메트리**: 턴·LLM 호출(토큰·지연·프롬프트·원문)·흐름 판정·UI 이벤트를 `telemetryProvider`에 쌓고, ⬇ 내보내기(v3.0)가 세션·학습 상태와 합쳐 JSON으로 내려준다. 수집 계층은 양 조건 공용이다.
 
 ### Core Architecture: Stateless Micro-Agent Pattern
 
@@ -35,8 +37,10 @@ App Orchestrator (ChatController)
 # Run the app
 flutter run -d chrome
 
-# Build for web
-flutter build web
+# Build for web (커밋 해시를 내보내기 JSON의 experiment.buildCommit에 심는다)
+flutter build web \
+  --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD) \
+  --dart-define=BUILD_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
 
 # Run tests
 flutter test
@@ -65,13 +69,18 @@ lib/
 │   ├── chat_session.dart            # 채팅 세션
 │   ├── learner_profile.dart         # 학습자 프로파일 (subject, goal, level, tone)
 │   ├── instructional_design.dart    # 교수설계 (Step, Syllabus)
-│   └── learning_state.dart          # 통합 학습 상태
+│   ├── learning_state.dart          # 통합 학습 상태
+│   └── telemetry.dart               # ⭐ 참가자·턴·LLM 호출·흐름·UI 이벤트 기록 모델
+│
+├── platform/
+│   └── web_env.dart                 # dart:html 조건부 import (테스트 VM에서는 스텁)
 │
 ├── providers/
-│   ├── chat_provider.dart           # ⭐ 핵심 오케스트레이션 로직
+│   ├── chat_provider.dart           # ⭐ 핵심 오케스트레이션 로직 + 텔레메트리 기록
 │   ├── chat_provider.g.dart         # (generated - do not edit)
 │   ├── learning_state_provider.dart # 학습 상태 관리 + 영속화
-│   └── learning_state_provider.g.dart # (generated)
+│   ├── learning_state_provider.g.dart # (generated)
+│   └── telemetry_provider.dart      # 세션 텔레메트리 누적기 (시작 버튼에서 초기화)
 │
 ├── config/
 │   ├── ai_models.dart               # ⭐ 모델·location 중앙 설정 (ModelSpec)
@@ -80,13 +89,15 @@ lib/
 │
 ├── services/                        # ⭐ Micro-Agent Services
 │   ├── gemini_service.dart          # 학습자 대면 스트리밍 (grounding + systemInstruction, 양 조건 공용)
+│   ├── llm_call_recorder.dart       # 비스트리밍 호출 래퍼: 시간·토큰·finishReason·원문 → LlmCallRecord
 │   ├── intent_classifier_service.dart  # 의도 분류 (in/out class)
 │   ├── conversational_agent_service.dart # Analyst/Feedback + Tutor systemInstruction
 │   ├── syllabus_designer_service.dart   # 커리큘럼 생성 (2단계: 검색 조사 → JSON 구조화)
 │   ├── step_progress_service.dart   # 단계 진행 판정
-│   └── session_export_service.dart  # 세션 JSON 내보내기
+│   └── session_export_service.dart  # 세션 JSON 내보내기 (v3.0)
 │
 ├── screens/
+│   ├── start_screen.dart            # 참가자 이름 + 시작 버튼 (t=0, 전체 초기화)
 │   └── chat_screen.dart             # 단일 세션 메인 화면
 │
 └── widgets/                         # Gemini 스타일 UI
@@ -235,11 +246,30 @@ isReady                = isLearnerProfileFilled && isDesignFilled
 > 이 이름들은 흐름도(`flowchart.md`)의 회색 판단 박스 라벨과 일치시킨다.
 > 앱이 `LearningState`를 읽어 분기하는 지점이 곧 이 조건들이다.
 
+### 4. 텔레메트리 (사후 분석용 수집)
+
+수집은 세 층에서 일어나고, ⬇ 내보내기가 한 파일로 합친다 (`session_export_service.dart`, `exportVersion 3.0`).
+
+| 층 | 무엇을 | 어디서 |
+|----|--------|--------|
+| LLM 호출 | agent·model·location, 시작/첫 청크/완료 시각, 토큰(usageMetadata), finishReason, systemInstruction·prompt·응답 원문, 오류 | 비스트리밍: `recordedGenerate()` (`llm_call_recorder.dart`) · 스트리밍: `GeminiService.streamResponse(onCallComplete:)` |
+| 턴·흐름 | 라우팅(route)·intent·단계 인덱스 전후·읽기/작성/지연 시간, 판정 로그(`_log` → `flowEvents`) | `ChatController` (`_setRoute`, `_markResponseCompleted`, `_recordCall`, `_recordFailure`) |
+| 학습자 행동 | 입력창 포커스·첫 글자·편집 횟수(`ComposeMeta`), 스크롤·맨아래로, 탭 이탈·창 크기·새로고침 경고, 버튼 클릭 | `chat_input.dart`, `chat_view.dart`, `chat_screen.dart`, `platform/web_env.dart` |
+
+규칙:
+- 각 서비스의 결과 클래스는 `call: LlmCallRecord?`와 `fallback: bool`을 함께 돌려준다. 새 에이전트를 추가하면 같은 형태로 맞추고 `ChatController`에서 `_recordCall`한다.
+- 실패는 `LlmCallException`으로 던져 실패한 호출 기록도 남긴다 (`_recordFailure`가 받는다).
+- `_log()`는 콘솔 전용이 아니다. `telemetryProvider.recordFlow`로도 간다. 콘솔 출력은 디버그 빌드에서만.
+- 메시지의 `meta`는 화면에 쓰지 않는다. 내보내기 전용이다.
+- `dart:html`은 `lib/platform/web_env.dart`를 통해서만 쓴다 (조건부 import). 직접 import하면 VM 테스트가 로드조차 되지 않는다.
+
 ---
 
 ## Firebase AI Configuration
 
 **GCP/Firebase 프로젝트**: `addie-tutor` (개인 결제 계정, `lib/firebase_options.dart`).
+`firebase_options.dart`는 gitignore라 로컬 사본이 옛 프로젝트(`research-addie-chatbot`)를 가리키고 있을 수 있다.
+빌드 전 `projectId`를 확인하고, 다르면 `flutterfire configure --project=addie-tutor --platforms=web`으로 재생성한다.
 
 모델명과 location(엔드포인트)은 `lib/config/ai_models.dart`에 `ModelSpec(모델, location)` 쌍으로 **중앙화**되어 있다. 모델·리전을 갈아끼울 때는 이 파일만 수정한다.
 

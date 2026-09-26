@@ -42,7 +42,7 @@ final class LearningStateNotifierProvider
 }
 
 String _$learningStateNotifierHash() =>
-    r'10f9fac38b1c732024a183ddf0d27fe5ad1a9eb1';
+    r'7e6bbe43a1cf9103139f82a6e667bbcd98ad474e';
 
 abstract class _$LearningStateNotifier extends $Notifier<LearningState> {
   LearningState build();

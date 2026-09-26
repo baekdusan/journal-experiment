@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../models/message.dart';
 import '../providers/chat_provider.dart';
 import '../providers/learning_state_provider.dart';
 import '../providers/streaming_message_provider.dart';
+import '../providers/telemetry_provider.dart';
 import '../models/instructional_design.dart' as id;
 import '../models/learner_profile.dart';
 import '../models/learning_state.dart';
@@ -51,17 +53,39 @@ class _ChatViewState extends ConsumerState<ChatView> {
   /// 고정 시 말풍선 위에 남기는 숨 쉴 틈.
   static const _pinTopInset = 12.0;
 
+  /// 스크롤이 멈춘 뒤 한 번만 위치를 기록하기 위한 디바운스.
+  Timer? _scrollLogTimer;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_updateJumpButton);
+    _scrollController.addListener(_scheduleScrollLog);
   }
 
   @override
   void dispose() {
+    _scrollLogTimer?.cancel();
+    _scrollController.removeListener(_scheduleScrollLog);
     _scrollController.removeListener(_updateJumpButton);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleScrollLog() {
+    _scrollLogTimer?.cancel();
+    _scrollLogTimer = Timer(const Duration(milliseconds: 400), _logScroll);
+  }
+
+  void _logScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    ref.read(telemetryProvider.notifier).recordUi('scroll', {
+      'pixels': position.pixels.round(),
+      'maxScrollExtent': position.maxScrollExtent.round(),
+      'viewport': position.viewportDimension.round(),
+      'contentBelowFold': _contentBelowFold().round(),
+    });
   }
 
   GlobalKey _keyFor(String id) =>
@@ -277,7 +301,13 @@ class _ChatViewState extends ConsumerState<ChatView> {
             elevation: 1,
             child: InkWell(
               customBorder: const CircleBorder(),
-              onTap: _scrollToBottom,
+              onTap: () {
+                ref.read(telemetryProvider.notifier).recordUi(
+                  'jump_to_bottom',
+                  {'contentBelowFold': _contentBelowFold().round()},
+                );
+                _scrollToBottom();
+              },
               child: SizedBox(
                 width: 40,
                 height: 40,
