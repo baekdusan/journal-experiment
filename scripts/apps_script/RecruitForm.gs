@@ -18,7 +18,8 @@
  *
  * ── 동작 ──────────────────────────────────────────────────────────────
  *   - 응답은 이 시트에 "설문지 응답" 탭으로 쌓인다.
- *   - 스크리닝: 만 19세 미만, 블록체인/암호화폐 전공·실무·자격증, 연구자와 지도·평가 관계면
+ *   - 스크리닝(기존 폼의 IRB 승인 문항을 읽음): 만 19세 미만, 한국어 불가,
+ *     블록체인/암호화폐 전공·실무·자격증, 연구자와 지도·평가 관계면
  *     좌석을 주지 않고 정원에도 세지 않는다. 사유는 참가자에게 알리지 않는다.
  *   - 적격 신청은 배정표에서 "세션 = 슬롯 순번 + SESSION_OFFSET"인 행 중 이름이 빈 첫 좌석에
  *     이름을 적고, 비고에 "일시 · 연락처"를 남긴다. 그 행의 참여자 번호를 확정 메일에 넣는다.
@@ -84,20 +85,29 @@ const FORM_DESCRIPTION = [
 const CONFIRMATION_MESSAGE = '신청이 접수되었습니다. 참여 조건을 확인한 뒤 확정 안내와 참가자 번호를 보내 드립니다. 메일이 보이지 않으면 스팸함을 확인해 주세요. 실험 전날 입력하신 연락처로 다시 안내드립니다.';
 
 // ── 문항 ─────────────────────────────────────────────────────────────
-const Q_NAME = '이름';
-const Q_CONTACT = '연락처 (전화번호 또는 카카오톡 아이디)';
-const Q_AFFIL = '소속 (학과·학년, 예: 산업공학과 3학년)';
-const Q_AGE = '만 19세 이상이신가요?';
-const Q_BACKGROUND = '다음 분야의 전공·실무 경력·관련 자격증 보유 여부를 표시해 주세요. (해당 항목 모두)';
-const BACKGROUND_ROWS = ['금융 / 핀테크', '컴퓨터 / 정보보안', '블록체인 / 암호화폐', '물류 / 공급망', '의료 / 보건'];
-const BACKGROUND_COLS = ['전공', '실무 경력', '자격증', '해당 없음'];
+// 기존 학교 폼(IRB 승인본)의 문항 제목을 그대로 쓴다. 스크립트는 이 문항들을 읽기만 한다.
+const Q_NAME = '성명';
+const Q_CONTACT = '휴대전화번호';
+const Q_AGE = '만 19세 이상입니까?';
+const Q_KOREAN = '한국어로 읽기·쓰기 및 의사소통이 가능합니까?';
+const Q_BACKGROUND = '다음 분야의 전공·실무 경력·관련 자격증 보유 여부를 표시해 주세요.';
 const EXCLUDED_ROW = '블록체인 / 암호화폐';
-const Q_RELATION = '연구책임자(백두산)에게 직접 지도를 받거나 평가를 받는 관계인가요? (수업 조교·지도 학생 등)';
+const Q_RELATION = '현재 연구책임자(백두산)가 직접 지도하거나 성적을 평가하는 수업을 수강 중입니까?';
 const SLOT_QUESTION_TITLE = '희망 시간';
-const SLOT_HELP = '남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이며 실제 소요는 약 75분(최대 85분)입니다.';
+const SLOT_HELP = '남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이며 실제 소요는 약 75분(최대 85분)입니다. 먼저 신청한 분부터 확정됩니다.';
 const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
-const Q_CONFIRM = '확인';
-const CONSENT_CHECK = '소요 시간(약 75분, 최대 85분)·장소·사례 안내를 확인했으며, 참여가 어려워지면 미리 연락하겠습니다.';
+
+// 2026-09-28 스크립트 첫 실행 때 중복으로 추가됐던 문항 + 슬롯 예약으로 대체된 옛 문항. 있으면 지운다.
+const REMOVE_TITLES = [
+  '이름',
+  '연락처 (전화번호 또는 카카오톡 아이디)',
+  '소속 (학과·학년, 예: 산업공학과 3학년)',
+  '만 19세 이상이신가요?',
+  '다음 분야의 전공·실무 경력·관련 자격증 보유 여부를 표시해 주세요. (해당 항목 모두)',
+  '연구책임자(백두산)에게 직접 지도를 받거나 평가를 받는 관계인가요? (수업 조교·지도 학생 등)',
+  '확인',
+  '참여 가능한 시간대를 모두 선택해 주세요.',
+];
 
 const DAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
 const PROP_FORM_ID = 'RECRUIT_FORM_ID';
@@ -132,49 +142,44 @@ function applyIrbSettings() {
 function setupForm_(form) {
   form.setTitle(FORM_TITLE)
     .setDescription(FORM_DESCRIPTION)
-    .setCollectEmail(true)
     .setConfirmationMessage(CONFIRMATION_MESSAGE);
 
-  ensureText_(form, Q_NAME);
-  ensureText_(form, Q_CONTACT);
-  ensureText_(form, Q_AFFIL);
-  ensureChoice_(form, Q_AGE, ['예', '아니요']);
-  ensureGrid_(form, Q_BACKGROUND, BACKGROUND_ROWS, BACKGROUND_COLS);
-  ensureChoice_(form, Q_RELATION, ['예', '아니요']);
-  const slot = ensureChoice_(form, SLOT_QUESTION_TITLE, [WAITLIST]);
-  slot.setHelpText(SLOT_HELP);
-  const confirm = findItem_(form, Q_CONFIRM, FormApp.ItemType.CHECKBOX);
-  if (confirm) confirm.asCheckboxItem().setChoiceValues([CONSENT_CHECK]).setRequired(true);
-  else form.addCheckboxItem().setTitle(Q_CONFIRM).setChoiceValues([CONSENT_CHECK]).setRequired(true);
+  // 로그인 없이 응답 가능하게: 이메일은 "응답자 입력"으로 받는다 (인증 방식은 로그인을 강제).
+  try { form.setEmailCollectionType(FormApp.EmailCollectionType.RESPONDER_INPUT); }
+  catch (err) { form.setCollectEmail(true); Logger.log('이메일 수집 방식 변경 불가: %s', err); }
+  try { form.setRequireLogin(false); }
+  catch (err) { Logger.log('로그인 제한 해제 불가(학교 계정에서 직접 해제 필요): %s', err); }
+
+  // 중복·대체 문항 삭제
+  const removed = [];
+  form.getItems().forEach(it => {
+    if (REMOVE_TITLES.includes(it.getTitle())) { removed.push(it.getTitle()); form.deleteItem(it); }
+  });
+
+  // 희망 시간(슬롯) 문항: 없으면 만들고, "희망 날짜나 참고 사항" 바로 앞에 둔다.
+  let slot = findItem_(form, SLOT_QUESTION_TITLE, FormApp.ItemType.MULTIPLE_CHOICE);
+  if (!slot) slot = form.addMultipleChoiceItem().setTitle(SLOT_QUESTION_TITLE).setChoiceValues([WAITLIST]);
+  slot.asMultipleChoiceItem().setHelpText(SLOT_HELP).setRequired(true);
+  const note = form.getItems().filter(i => i.getTitle().indexOf('희망 날짜나 참고 사항') === 0)[0];
+  if (note && slot.getIndex() > note.getIndex()) form.moveItem(slot.getIndex(), note.getIndex());
+
+  // 스크리닝 문항이 제대로 있는지 확인 (없으면 판정이 통과로 처리되므로 경고)
+  [Q_NAME, Q_CONTACT, Q_AGE, Q_KOREAN, Q_BACKGROUND, Q_RELATION].forEach(t => {
+    if (!form.getItems().some(i => i.getTitle() === t)) Logger.log('경고: 문항 "%s"이 폼에 없습니다.', t);
+  });
 
   resetChoices();
-  // 응답을 이 시트로 연결 (이미 다른 시트에 연결돼 있으면 이 시트로 바뀐다)
   form.setDestination(FormApp.DestinationType.SPREADSHEET, SpreadsheetApp.getActive().getId());
   installTrigger_(form);
 
+  Logger.log('삭제한 문항: %s', removed.length ? removed.join(' / ') : '없음');
+  Logger.log('최종 문항: %s', form.getItems().map(i => i.getTitle()).join(' / '));
   Logger.log('완료. 슬롯 %s개, 정원 %s명/슬롯', buildSlots_().length, CAPACITY);
   Logger.log('신청 링크: %s', form.getPublishedUrl());
-  Logger.log('편집 링크: %s', form.getEditUrl());
-  Logger.log('기존 문항 중 이 스크립트가 모르는 것은 그대로 남아 있습니다. 편집 링크에서 확인하세요.');
 }
 
 function findItem_(form, title, type) {
   return form.getItems(type).filter(i => i.getTitle() === title)[0] || null;
-}
-function ensureText_(form, title) {
-  const it = findItem_(form, title, FormApp.ItemType.TEXT);
-  return (it ? it.asTextItem() : form.addTextItem().setTitle(title)).setRequired(true);
-}
-function ensureChoice_(form, title, choices) {
-  const it = findItem_(form, title, FormApp.ItemType.MULTIPLE_CHOICE);
-  const mc = it ? it.asMultipleChoiceItem() : form.addMultipleChoiceItem().setTitle(title);
-  if (!it || title !== SLOT_QUESTION_TITLE) mc.setChoiceValues(choices);
-  return mc.setRequired(true);
-}
-function ensureGrid_(form, title, rows, cols) {
-  const it = findItem_(form, title, FormApp.ItemType.CHECKBOX_GRID);
-  const g = it ? it.asCheckboxGridItem() : form.addCheckboxGridItem().setTitle(title);
-  return g.setRows(rows).setColumns(cols).setRequired(true);
 }
 
 function installTrigger_(form) {
@@ -247,18 +252,27 @@ function status() {
 
 /** IRB 선정·제외 기준 충족 여부. 사유는 내부 기록용(참가자에게 보내지 않음). */
 function eligibility_(response) {
-  let age = null, relation = null, bg = null;
+  let age = null, korean = null, relation = null, bg = null, rows = null;
   response.getItemResponses().forEach(ir => {
-    const t = ir.getItem().getTitle();
+    const it = ir.getItem();
+    const t = it.getTitle();
     if (t === Q_AGE) age = String(ir.getResponse());
+    if (t === Q_KOREAN) korean = String(ir.getResponse());
     if (t === Q_RELATION) relation = String(ir.getResponse());
-    if (t === Q_BACKGROUND) bg = ir.getResponse(); // 행별 배열
+    if (t === Q_BACKGROUND) {
+      bg = ir.getResponse(); // 행별 배열
+      rows = it.getType() === FormApp.ItemType.CHECKBOX_GRID ? it.asCheckboxGridItem().getRows()
+           : it.getType() === FormApp.ItemType.GRID ? it.asGridItem().getRows() : null;
+    }
   });
-  if (age === '아니요') return { ok: false, reason: '만 19세 미만' };
-  if (relation === '예') return { ok: false, reason: '연구자와 지도·평가 관계' };
-  if (bg) {
-    const idx = BACKGROUND_ROWS.indexOf(EXCLUDED_ROW);
-    const cells = [].concat(bg[idx] || []).filter(v => v && v !== '해당 없음');
+  const no = v => v != null && /^아니/.test(v.trim());
+  const yes = v => v != null && /^예/.test(v.trim());
+  if (no(age)) return { ok: false, reason: '만 19세 미만' };
+  if (no(korean)) return { ok: false, reason: '한국어 의사소통 불가' };
+  if (yes(relation)) return { ok: false, reason: '연구자와 지도·평가 관계' };
+  if (bg && rows) {
+    const idx = rows.indexOf(EXCLUDED_ROW);
+    const cells = idx < 0 ? [] : [].concat(bg[idx] || []).filter(v => v && !/해당\s*없음/.test(v));
     if (cells.length) return { ok: false, reason: '제외 분야 경력: ' + cells.join(', ') };
   }
   return { ok: true };
