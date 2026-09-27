@@ -32,20 +32,38 @@ class ExperimentConfig {
   /// 실험에서 로드맵 가시성 자체를 조작/복원하려면 이 값만 바꾸면 된다.
   static const bool showLearningRoadmap = false;
 
-  /// URL 쿼리 파라미터로 처치/대조 조건을 결정한다.
+  /// 진행자 설정 화면([SetupScreen])에서 고른 조건. URL보다 우선한다.
+  static ExperimentCondition? _override;
+  static String? _stationOverride;
+
+  /// URL 쿼리(`?condition=`)가 가리키는 조건. 없거나 오타면 null.
   ///
   /// 예) `https://HOST/?condition=control`   → 대조군(free form)
   ///     `https://HOST/?condition=treatment` → 처치군(구조화)
-  ///
-  /// 미지정/오타 시 기본은 [ExperimentCondition.treatment].
-  /// 참가자별로 다른 링크를 배포해 조건을 통제하고 세션 로그에도 기록한다.
-  static ExperimentCondition get condition {
+  static ExperimentCondition? get conditionFromUrl {
     final c = Uri.base.queryParameters['condition']?.toLowerCase().trim();
     if (c == 'control' || c == 'freeform' || c == 'free') {
       return ExperimentCondition.control;
     }
-    return ExperimentCondition.treatment;
+    if (c == 'treatment' || c == 'addie') return ExperimentCondition.treatment;
+    return null;
   }
+
+  /// 현재 조건. 진행자 설정 > URL > 기본값(처치군) 순.
+  ///
+  /// 실제 운영에서는 [SetupScreen]이 명시적 선택을 강제하므로 기본값에
+  /// 조용히 떨어지는 일은 없다. 기본값은 테스트·개발용 안전망이다.
+  static ExperimentCondition get condition =>
+      _override ?? conditionFromUrl ?? ExperimentCondition.treatment;
+
+  /// 조건이 어디서 왔는지 (setup | url | default). 내보내기에 기록한다.
+  static String get conditionSource => _override != null
+      ? 'setup'
+      : (conditionFromUrl != null ? 'url' : 'default');
+
+  static void setCondition(ExperimentCondition c) => _override = c;
+  static void setStation(String? s) =>
+      _stationOverride = (s == null || s.trim().isEmpty) ? null : s.trim();
 
   static bool get isControl => condition == ExperimentCondition.control;
   static bool get isTreatment => !isControl;
@@ -55,7 +73,9 @@ class ExperimentConfig {
 
   /// 현장 PC 식별자 (`?pc=A` 또는 `?station=A`). 두 대를 동시에 돌릴 때
   /// 파일이 어느 컴퓨터에서 나왔는지 구분한다. 없으면 null.
-  static String? get station {
+  static String? get station => _stationOverride ?? stationFromUrl;
+
+  static String? get stationFromUrl {
     final q = Uri.base.queryParameters;
     final v = (q['pc'] ?? q['station'])?.trim();
     return (v == null || v.isEmpty) ? null : v;

@@ -55,6 +55,7 @@ class SessionExportService {
       'experiment': {
         // URL 쿼리(?condition=...)로 결정된 값. 조건 구분의 유일한 근거.
         'condition': ExperimentConfig.conditionLabel,
+        'conditionSource': ExperimentConfig.conditionSource, // setup | url | default
         'station': ExperimentConfig.station,
         'showLearningRoadmap': ExperimentConfig.showLearningRoadmap,
         'buildCommit': ExperimentConfig.buildCommit,

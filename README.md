@@ -12,19 +12,21 @@ ADDIE 모델 기반 적응형 학습 튜터 — **피험자 간 2조건(Between-
 
 ## 실험 조건 접속 (URL 분기)
 
-조건은 페이지 로드 시 **URL 쿼리 파라미터**로 결정된다 (`lib/config/experiment_config.dart`). 별도 엔드포인트나 빌드가 아니라 **같은 앱, 같은 주소에 쿼리만 다르게** 붙인다.
+앱은 **진행자용 설정 화면**으로 시작한다 (`lib/screens/setup_screen.dart`). 여기서 처치군/대조군과 PC 라벨을 고르고 "참가자 화면으로"를 누르면 그다음부터는 참가자 화면(이름 입력 → 채팅)만 보이고 조건은 어디에도 표시되지 않는다. **조건을 고르지 않으면 넘어갈 수 없으므로** URL 오타로 조건이 잘못 잡힐 일이 없다.
+
+URL 쿼리는 이제 선택 사항이다. 넣어 두면 설정 화면에 미리 선택되어 클릭 한 번으로 끝난다 (`lib/config/experiment_config.dart`). 우선순위는 설정 화면 > URL > 기본값(처치군)이며, 내보내기 JSON의 `experiment.conditionSource`에 어디서 온 값인지(`setup | url | default`) 기록된다.
 
 | 조건 | URL |
 |------|-----|
 | 처치군 (ADDIE) | `http://<HOST>:<PORT>/?condition=treatment` |
 | 대조군 (순수 모델) | `http://<HOST>:<PORT>/?condition=control` |
 
-- 대조군으로 인식되는 값은 `control`, `freeform`, `free` 세 가지. **그 밖의 모든 경우(미지정·오타 포함)는 조용히 처치군으로 폴백**하므로 링크 배포 시 오타에 주의한다.
+- URL에서 대조군으로 인식되는 값은 `control`, `freeform`, `free`, 처치군은 `treatment`, `addie`. 그 밖의 값은 "미선택"으로 취급되어 설정 화면에서 골라야 한다.
 - 쿼리는 반드시 `#` **앞**에 와야 한다. `…/?condition=control` ✅ / `…/#/?condition=control` ❌ (`Uri.base.queryParameters`에 잡히지 않아 처치군이 된다).
-- 조건은 페이지 로드 시점에 고정된다. 바꾸려면 주소를 고쳐 **새로고침**.
+- 조건을 바꾸려면 **새로고침**해 설정 화면으로 돌아간다. 직전 선택은 기억되어 미리 선택된다.
 - 학습 상태가 SharedPreferences에 남지만, **시작 화면의 시작 버튼이 대화·학습 상태·텔레메트리를 전부 초기화**하므로 참가자 교체는 새로고침 → 이름 입력 → 시작으로 끝난다.
 - 선택 쿼리: `&pc=A`(현장 PC 식별자, 파일명·JSON에 기록), `&pid=P07`(시작 화면 이름 칸 미리 채움).
-- 화면만으로는 조건을 구분할 수 없다 (UI 완전 동일). 확인은 **내보내기 JSON의 `experiment.condition`** 또는 파일명으로 한다. 콘솔 로그 `[Flow] condition`은 대조군일 때만 찍힌다.
+- 참가자 화면만으로는 조건을 구분할 수 없다 (UI 완전 동일). 확인은 **내보내기 JSON의 `experiment.condition`** 또는 파일명으로 한다.
 
 ```bash
 # 로컬 실행 예시
@@ -236,8 +238,8 @@ firebase hosting:disable
 - **초기화(↻)**: 대화 + 학습 상태(SharedPreferences 포함) + 텔레메트리 전체 리셋. 시작 화면의 시작 버튼도 같은 초기화를 수행한다.
 - **현장 체크리스트 (두 PC 동시 진행)**:
   1. 두 PC의 시계를 맞춘다 (타임스탬프는 각 PC 로컬 시각).
-  2. PC마다 링크를 북마크한다: `…/?condition=treatment&pc=A`, `…/?condition=control&pc=B`. 조건 기본값이 처치군이므로 오타 시 조용히 처치군이 된다.
-  3. 참가자 교체: 새로고침 → 시작 화면에서 이름 입력 → 시작. (시작 버튼이 이전 참가자의 상태를 지운다.)
+  2. PC마다 설정 화면에서 조건과 PC 라벨(A/B)을 고른다. 링크에 `?condition=…&pc=…`를 넣어 두면 미리 선택된다.
+  3. 참가자 교체: 새로고침 → 설정 화면(직전 선택이 미리 채워짐) → 참가자 화면으로 → 이름 입력 → 시작. (시작 버튼이 이전 참가자의 상태를 지운다.)
   4. 세션 중 새로고침·탭 닫기 금지. 대화는 메모리에만 있다 (브라우저가 이탈 경고를 띄운다).
   5. 실험 종료 시 반드시 ⬇ 내보내기. 파일은 각 PC의 다운로드 폴더에 남으므로 세션마다 한곳에 모은다.
 - **대화 메모리**: 양 조건 동일하게 **세션 전체 히스토리**를 스트리밍 호출에 전달. 판정 에이전트(StepProgress/Feedback)만 최근 6개 윈도우 사용.
@@ -286,6 +288,7 @@ lib/
 │   └── session_export_service.dart       # v3.0 JSON 내보내기 (참가자·환경·턴·호출·이벤트 전부)
 │
 ├── screens/
+│   ├── setup_screen.dart          # 진행자용: 조건·PC 라벨 선택 (명시적 선택 강제)
 │   ├── start_screen.dart          # 참가자 이름 + 시작 버튼 (t=0)
 │   └── chat_screen.dart
 └── widgets/                       # chat_view, chat_input, message_bubble, typing_indicator
