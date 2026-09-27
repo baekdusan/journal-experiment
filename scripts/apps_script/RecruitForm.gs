@@ -28,7 +28,7 @@
  */
 
 // ── 설정 ─────────────────────────────────────────────────────────────
-const EXISTING_FORM_URL = ''; // 예: 'https://docs.google.com/forms/d/XXXX/edit'
+const EXISTING_FORM_URL = 'https://docs.google.com/forms/d/1ROdwmjejeEYVJrjEL2R5AiZjY9rF6nhlxvMDj8SOZ0E/edit'; // 예: 'https://docs.google.com/forms/d/XXXX/edit'
 
 const SEND_CONFIRMATION_EMAIL = true; // false면 메일 없이 배정표 기입만 (연락은 직접)
 const CAPACITY = 2;
