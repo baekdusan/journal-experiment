@@ -1,55 +1,41 @@
 /**
- * 참가자 모집 폼 — 생성 + 슬롯별 정원(2명) 선착순 자동 마감 + 확정 메일.
+ * 참가자 모집 폼 — IRB 승인본 기준 문구 + 스크리닝 + 슬롯 선착순(2명) + 배정표 자동 기입.
  *
- * 설치 (1회): 실험운영 시트의 Apps Script 프로젝트(Code.gs가 있는 곳)에
- *   파일 추가(+) → "RecruitForm" 이름으로 이 내용을 붙여 넣고 저장.
- *   CONTACT_LINE에 연락처를 적은 뒤, 함수 `createRecruitForm`을 선택해 ▶ 실행 → 권한 승인.
- *   실행 로그에 다음이 찍힌다:
- *     - 신청 링크(모집 글에 넣을 것)
- *     - 편집 링크
- *   응답은 이 시트에 "설문지 응답" 탭으로 자동 연결되고, 제출 트리거도 함께 걸린다.
+ * 문구 기준: IRB 변경승인본(2026-09-22, IRB No. 2608/004-010)과 연구참여자 모집 문건.
+ * 모집 단계에서는 학습 주제(블록체인)를 노출하지 않는다.
  *
- * 동작:
- *   - 신청이 들어오면 배정표에서 "세션 = 슬롯 순번"인 행 중 이름이 빈 첫 좌석에 이름을 적고,
- *     그 행의 참여자 번호를 확정 메일에 넣는다. (슬롯 1 = 세션 1+SESSION_OFFSET, 시간순)
- *     → 참가자는 받은 번호와 이름으로 실험 사이트에서 바로 시작할 수 있다.
- *   - 응답이 들어올 때마다 슬롯별 인원을 세서 CAPACITY명이 찬 슬롯을 선택지에서 뺀다.
- *   - 대기자 선택지(WAITLIST)는 절대 빼지 않는다.
- *   - 신청자에게 확정(또는 대기 등록) 메일을 보낸다.
- *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 `resetChoices`를 실행한다 (찬 슬롯은 자동 제외).
- *   - 현황은 `status` 실행 → 실행 로그.
+ * ── 설치 (실험운영 시트의 Apps Script 프로젝트, Code.gs와 같은 곳) ──────────────
+ *   파일 + → 스크립트 → 이름 "RecruitForm" → 이 내용 붙여 넣기 → 저장.
+ *   프로젝트 설정(톱니바퀴) → 시간대 (GMT+09:00) 서울.
  *
- * 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니
- * 늦은 쪽에 다른 시간을 제안한다.
+ *   A. IRB 문건에 적힌 기존 폼(학교 계정 소유)을 쓰는 경우 — 권장
+ *      1) 학교 계정으로 그 폼을 열고 ⋮ → 공동작업자 추가 → dusanisbaek@gmail.com 편집자
+ *      2) 그 폼의 편집 주소(docs.google.com/forms/d/…/edit)를 EXISTING_FORM_URL에 넣기
+ *      3) 함수 linkExistingForm ▶ 실행 → 권한 승인
+ *   B. 새 폼을 만드는 경우: EXISTING_FORM_URL을 비워 두고 createRecruitForm ▶ 실행
+ *
+ *   어느 쪽이든 실행 로그에 신청 링크가 찍힌다. 두 번 실행해도 문항이 중복되지 않는다.
+ *
+ * ── 동작 ──────────────────────────────────────────────────────────────
+ *   - 응답은 이 시트에 "설문지 응답" 탭으로 쌓인다.
+ *   - 스크리닝: 만 19세 미만, 블록체인/암호화폐 전공·실무·자격증, 연구자와 지도·평가 관계면
+ *     좌석을 주지 않고 정원에도 세지 않는다. 사유는 참가자에게 알리지 않는다.
+ *   - 적격 신청은 배정표에서 "세션 = 슬롯 순번 + SESSION_OFFSET"인 행 중 이름이 빈 첫 좌석에
+ *     이름을 적고, 비고에 "일시 · 연락처"를 남긴다. 그 행의 참여자 번호를 확정 메일에 넣는다.
+ *   - 슬롯이 CAPACITY명 차면 선택지에서 뺀다. 대기자 선택지는 항상 남긴다.
+ *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 resetChoices ▶ 실행. 현황은 status ▶ 실행.
+ *   - 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니 조정한다.
  */
 
-const FORM_TITLE = 'AI 튜터 학습 실험 참가 신청';
-const FORM_DESCRIPTION = [
-  '서울대학교 산업공학과 삶향상기술연구실에서 진행하는 학습 실험입니다.',
-  'AI 튜터와 1:1로 새로운 주제를 학습하는 경험을 연구합니다. 사전 지식은 필요 없습니다.',
-  '',
-  '■ 소요 시간: 약 1시간 10분 (사전 설문 → AI 튜터 학습 → 사후 설문)',
-  '■ 장소: 서울대학교 39동 336호 산업/인간공학 실험실 (컴퓨터 준비되어 있음)',
-  '■ 사례비: 참여 완료 시 15,000원',
-  '■ 대상: 서울대학교 재학생, 한국어 채팅 가능',
-  '',
-  '희망 시간을 고르면 바로 확정되며, 입력하신 이메일로 안내 메일이 갑니다.',
-  '대화 내용과 설문 응답은 연구 목적으로만 익명 처리되어 사용되며, 참여는 언제든 중단할 수 있습니다.',
-].join('\n');
+// ── 설정 ─────────────────────────────────────────────────────────────
+const EXISTING_FORM_URL = ''; // 예: 'https://docs.google.com/forms/d/XXXX/edit'
 
-const SLOT_QUESTION_TITLE = '희망 시간';
-
-// 배정표 세션 번호 = 슬롯 순번 + SESSION_OFFSET.
-// 세션 1은 2026-09-27 파일럿(P001·P002)이 썼으므로 첫 슬롯은 세션 2부터.
+const SEND_CONFIRMATION_EMAIL = true; // false면 메일 없이 배정표 기입만 (연락은 직접)
+const CAPACITY = 2;
+// 배정표 세션 1은 2026-09-27 파일럿(P001·P002)이 썼으므로 첫 슬롯은 세션 2부터.
 const SESSION_OFFSET = 1;
 
-// 신청 직후 확정 메일 자동 발송. false면 메일 없이 배정표 기입만 한다(연락은 직접).
-const SEND_CONFIRMATION_EMAIL = true;
-const CAPACITY = 2;
-const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
-
-// 실험 주 일정. 주마다 월요일 날짜와 요일별 시작 시각(0=월 … 6=일)을 적는다.
-// 각 슬롯은 2시간 (19 = 19:00~21:00). 주를 추가하려면 항목을 하나 더 넣는다.
+// 주마다 월요일과 요일별 시작 시각(0=월 … 6=일). 각 슬롯은 2시간 (19 = 19:00~21:00).
 const SCHEDULE = [
   {
     monday: new Date(2026, 8, 28), // 2026-09-28 (월) — 월은 0부터
@@ -77,9 +63,136 @@ const SCHEDULE = [
   },
 ];
 
-const DAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
+// ── 문구 ─────────────────────────────────────────────────────────────
+const FORM_TITLE = 'AI 챗봇 기반 학습 경험 연구 참여 신청';
+const CONTACT_LINE = '문의: 백두산 (서울대학교 산업공학과 석사과정) dusanbaek@snu.ac.kr / 010-2248-7291';
+const LOCATION_LINE = '장소: 서울대학교 39동 336호 인간공학 실험실';
+const FORM_DESCRIPTION = [
+  '서울대학교 공과대학 산업공학과에서 진행하는 연구의 참여자를 모집합니다.',
+  '',
+  '■ 연구 과제명: LLM 챗봇 환경에서 구조화된 학습 설계가 사용성과 학습자 경험에 미치는 영향',
+  '■ 연구 목적: AI 챗봇을 활용한 학습 환경에서 학습 진행 방식이 사용성, 학습 경험, 단기 학습성과에 미치는 영향을 인간공학적으로 평가합니다.',
+  '■ 참여 내용 (약 75분, 최대 85분): 연구 설명 및 동의(약 5분) → 사전 설문과 사전 지식 확인 문항(약 15분) → AI 챗봇으로 주어진 주제 학습(약 30분, 최대 35분) → 사후 설문(약 10분) → 사후 지식 확인 문항과 주관식 질문(약 15분)',
+  '■ ' + LOCATION_LINE,
+  '■ 사례: 전 과정 완료 시 15,000원. 참여는 자발적이며 언제든 중단할 수 있고, 중단 시에도 참여 시간에 따라 사례가 지급됩니다.',
+  '■ 참여 조건: 만 19세 이상, 한국어 읽기·쓰기 가능, PC로 챗봇 사용에 무리가 없는 분. 일부 전공·경력에 해당하면 참여가 어려울 수 있어 아래에서 간단히 확인합니다.',
+  '',
+  '신청 내용을 확인한 뒤 참여 확정과 참가자 번호를 안내드립니다.',
+  '본 연구는 서울대학교 생명윤리위원회(IRB)의 승인을 받았습니다 (IRB No. 2608/004-010).',
+  CONTACT_LINE,
+].join('\n');
+const CONFIRMATION_MESSAGE = '신청이 접수되었습니다. 참여 조건을 확인한 뒤 확정 안내와 참가자 번호를 보내 드립니다. 메일이 보이지 않으면 스팸함을 확인해 주세요. 실험 전날 입력하신 연락처로 다시 안내드립니다.';
 
-/** SLOTS: "9/28(월) 09:00~11:00" 형식의 선택지 목록. 시간순. */
+// ── 문항 ─────────────────────────────────────────────────────────────
+const Q_NAME = '이름';
+const Q_CONTACT = '연락처 (전화번호 또는 카카오톡 아이디)';
+const Q_AFFIL = '소속 (학과·학년, 예: 산업공학과 3학년)';
+const Q_AGE = '만 19세 이상이신가요?';
+const Q_BACKGROUND = '다음 분야의 전공·실무 경력·관련 자격증 보유 여부를 표시해 주세요. (해당 항목 모두)';
+const BACKGROUND_ROWS = ['금융 / 핀테크', '컴퓨터 / 정보보안', '블록체인 / 암호화폐', '물류 / 공급망', '의료 / 보건'];
+const BACKGROUND_COLS = ['전공', '실무 경력', '자격증', '해당 없음'];
+const EXCLUDED_ROW = '블록체인 / 암호화폐';
+const Q_RELATION = '연구책임자(백두산)에게 직접 지도를 받거나 평가를 받는 관계인가요? (수업 조교·지도 학생 등)';
+const SLOT_QUESTION_TITLE = '희망 시간';
+const SLOT_HELP = '남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이며 실제 소요는 약 75분(최대 85분)입니다.';
+const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
+const Q_CONFIRM = '확인';
+const CONSENT_CHECK = '소요 시간(약 75분, 최대 85분)·장소·사례 안내를 확인했으며, 참여가 어려워지면 미리 연락하겠습니다.';
+
+const DAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
+const PROP_FORM_ID = 'RECRUIT_FORM_ID';
+
+// ── 설치 함수 ────────────────────────────────────────────────────────
+
+/** A. 기존 폼(편집 권한 있음)을 연결하고 IRB 기준으로 맞춘다. */
+function linkExistingForm() {
+  if (!EXISTING_FORM_URL) throw new Error('EXISTING_FORM_URL에 기존 폼의 편집 주소를 넣으세요.');
+  const form = FormApp.openByUrl(EXISTING_FORM_URL);
+  PropertiesService.getScriptProperties().setProperty(PROP_FORM_ID, form.getId());
+  setupForm_(form);
+}
+
+/** B. 새 폼을 만들고 IRB 기준으로 맞춘다. */
+function createRecruitForm() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(PROP_FORM_ID)) {
+    Logger.log('이미 연결된 폼이 있습니다: %s (다시 맞추려면 applyIrbSettings 실행)', form_().getEditUrl());
+    return;
+  }
+  const form = FormApp.create(FORM_TITLE);
+  props.setProperty(PROP_FORM_ID, form.getId());
+  setupForm_(form);
+}
+
+/** 연결된 폼의 문구·문항을 다시 맞춘다 (문구를 고친 뒤 실행). */
+function applyIrbSettings() {
+  setupForm_(form_());
+}
+
+function setupForm_(form) {
+  form.setTitle(FORM_TITLE)
+    .setDescription(FORM_DESCRIPTION)
+    .setCollectEmail(true)
+    .setConfirmationMessage(CONFIRMATION_MESSAGE);
+
+  ensureText_(form, Q_NAME);
+  ensureText_(form, Q_CONTACT);
+  ensureText_(form, Q_AFFIL);
+  ensureChoice_(form, Q_AGE, ['예', '아니요']);
+  ensureGrid_(form, Q_BACKGROUND, BACKGROUND_ROWS, BACKGROUND_COLS);
+  ensureChoice_(form, Q_RELATION, ['예', '아니요']);
+  const slot = ensureChoice_(form, SLOT_QUESTION_TITLE, [WAITLIST]);
+  slot.setHelpText(SLOT_HELP);
+  const confirm = findItem_(form, Q_CONFIRM, FormApp.ItemType.CHECKBOX);
+  if (confirm) confirm.asCheckboxItem().setChoiceValues([CONSENT_CHECK]).setRequired(true);
+  else form.addCheckboxItem().setTitle(Q_CONFIRM).setChoiceValues([CONSENT_CHECK]).setRequired(true);
+
+  resetChoices();
+  // 응답을 이 시트로 연결 (이미 다른 시트에 연결돼 있으면 이 시트로 바뀐다)
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, SpreadsheetApp.getActive().getId());
+  installTrigger_(form);
+
+  Logger.log('완료. 슬롯 %s개, 정원 %s명/슬롯', buildSlots_().length, CAPACITY);
+  Logger.log('신청 링크: %s', form.getPublishedUrl());
+  Logger.log('편집 링크: %s', form.getEditUrl());
+  Logger.log('기존 문항 중 이 스크립트가 모르는 것은 그대로 남아 있습니다. 편집 링크에서 확인하세요.');
+}
+
+function findItem_(form, title, type) {
+  return form.getItems(type).filter(i => i.getTitle() === title)[0] || null;
+}
+function ensureText_(form, title) {
+  const it = findItem_(form, title, FormApp.ItemType.TEXT);
+  return (it ? it.asTextItem() : form.addTextItem().setTitle(title)).setRequired(true);
+}
+function ensureChoice_(form, title, choices) {
+  const it = findItem_(form, title, FormApp.ItemType.MULTIPLE_CHOICE);
+  const mc = it ? it.asMultipleChoiceItem() : form.addMultipleChoiceItem().setTitle(title);
+  if (!it || title !== SLOT_QUESTION_TITLE) mc.setChoiceValues(choices);
+  return mc.setRequired(true);
+}
+function ensureGrid_(form, title, rows, cols) {
+  const it = findItem_(form, title, FormApp.ItemType.CHECKBOX_GRID);
+  const g = it ? it.asCheckboxGridItem() : form.addCheckboxGridItem().setTitle(title);
+  return g.setRows(rows).setColumns(cols).setRequired(true);
+}
+
+function installTrigger_(form) {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'onSubmit')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('onSubmit').forForm(form).onFormSubmit().create();
+}
+
+function form_() {
+  const id = PropertiesService.getScriptProperties().getProperty(PROP_FORM_ID);
+  if (!id) throw new Error('연결된 폼이 없습니다. linkExistingForm 또는 createRecruitForm을 먼저 실행하세요.');
+  return FormApp.openById(id);
+}
+
+// ── 슬롯 ─────────────────────────────────────────────────────────────
+
+/** "9/28(월) 09:00~11:00" 형식의 슬롯 목록. 시간순. */
 function buildSlots_() {
   const out = [];
   SCHEDULE.forEach(week => {
@@ -95,142 +208,127 @@ function buildSlots_() {
   return out;
 }
 
-const LOCATION_LINE = '장소: 서울대학교 39동 336호 산업/인간공학 실험실';
-const CONTACT_LINE = '문의: ___'; // 비워 두면(___) 메일에서 이 줄은 빠진다
-
-const PROP_FORM_ID = 'RECRUIT_FORM_ID';
-
-/** 1회 실행: 폼 생성 + 문항 + 응답 시트 연결 + 제출 트리거. */
-function createRecruitForm() {
-  const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(PROP_FORM_ID)) {
-    const existing = FormApp.openById(props.getProperty(PROP_FORM_ID));
-    Logger.log('이미 만들어진 폼이 있습니다.\n신청 링크: %s\n편집 링크: %s',
-      existing.getPublishedUrl(), existing.getEditUrl());
-    Logger.log('새로 만들려면 스크립트 속성 %s 를 지우고 다시 실행하세요.', PROP_FORM_ID);
-    return;
-  }
-
-  const form = FormApp.create(FORM_TITLE);
-  form.setDescription(FORM_DESCRIPTION)
-    .setCollectEmail(true)
-    .setLimitOneResponsePerUser(false)
-    .setConfirmationMessage(SEND_CONFIRMATION_EMAIL
-      ? '신청이 접수되었습니다. 참가자 번호와 안내가 담긴 확인 메일을 보내 드렸습니다. 메일이 보이지 않으면 스팸함을 확인해 주세요. 실험 전날 입력하신 연락처로 다시 안내드립니다.'
-      : '신청이 접수되었습니다. 실험 전날까지 입력하신 연락처로 참가자 번호와 안내를 보내 드립니다.');
-
-  form.addTextItem().setTitle('이름').setRequired(true);
-  form.addTextItem().setTitle('연락처 (전화번호 또는 카카오톡 아이디)').setRequired(true);
-  form.addTextItem().setTitle('소속 (학과·학년, 예: 산업공학과 3학년)').setRequired(true);
-  form.addMultipleChoiceItem()
-    .setTitle(SLOT_QUESTION_TITLE)
-    .setHelpText('남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이지만 실제 소요는 약 1시간 10분입니다.')
-    .setChoiceValues([...buildSlots_(), WAITLIST])
-    .setRequired(true);
-  form.addCheckboxItem()
-    .setTitle('확인')
-    .setChoiceValues(['소요 시간·장소·사례비 안내를 확인했으며, 참여가 어려워지면 미리 연락하겠습니다.'])
-    .setRequired(true);
-
-  // 응답을 이 시트에 새 탭으로 연결
-  form.setDestination(FormApp.DestinationType.SPREADSHEET, SpreadsheetApp.getActive().getId());
-
-  props.setProperty(PROP_FORM_ID, form.getId());
-  installTrigger_(form);
-  Logger.log('폼 생성 완료. 슬롯 %s개, 정원 %s명/슬롯', buildSlots_().length, CAPACITY);
-  Logger.log('신청 링크 (모집 글에 넣기): %s', form.getPublishedUrl());
-  Logger.log('편집 링크: %s', form.getEditUrl());
+function slotItem_() {
+  const it = findItem_(form_(), SLOT_QUESTION_TITLE, FormApp.ItemType.MULTIPLE_CHOICE);
+  if (!it) throw new Error(`객관식 문항 "${SLOT_QUESTION_TITLE}"이 폼에 없습니다. applyIrbSettings를 실행하세요.`);
+  return it.asMultipleChoiceItem();
 }
 
-function installTrigger_(form) {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'onSubmit')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('onSubmit').forForm(form).onFormSubmit().create();
-}
-
-function form_() {
-  const id = PropertiesService.getScriptProperties().getProperty(PROP_FORM_ID);
-  if (!id) throw new Error('폼이 아직 없습니다. createRecruitForm을 먼저 실행하세요.');
-  return FormApp.openById(id);
-}
-
-/** 선택지를 SLOTS 기준으로 다시 채운다 (이미 찬 슬롯은 제외). */
+/** 선택지를 SCHEDULE 기준으로 다시 채운다 (찬 슬롯은 제외). */
 function resetChoices() {
-  const item = slotItem_();
   const counts = countBySlot_();
   const open = buildSlots_().filter(s => (counts[s] || 0) < CAPACITY);
-  item.setChoiceValues([...open, WAITLIST]);
+  slotItem_().setChoiceValues([...open, WAITLIST]);
 }
 
-/** 응답 제출 시: 찬 슬롯 제거 + 확정 메일. */
+/** 적격 신청만 슬롯별로 센다. 대기자는 세지 않는다. */
+function countBySlot_() {
+  const counts = {};
+  form_().getResponses().forEach(r => {
+    if (!eligibility_(r).ok) return;
+    r.getItemResponses().forEach(ir => {
+      if (ir.getItem().getTitle() !== SLOT_QUESTION_TITLE) return;
+      const v = String(ir.getResponse());
+      if (v === WAITLIST) return;
+      counts[v] = (counts[v] || 0) + 1;
+    });
+  });
+  return counts;
+}
+
+/** 현황 (실행 로그). */
+function status() {
+  const counts = countBySlot_();
+  buildSlots_().forEach((s, i) =>
+    Logger.log('세션 %s  %s  %s/%s', i + 1 + SESSION_OFFSET, s, counts[s] || 0, CAPACITY));
+}
+
+// ── 스크리닝 ─────────────────────────────────────────────────────────
+
+/** IRB 선정·제외 기준 충족 여부. 사유는 내부 기록용(참가자에게 보내지 않음). */
+function eligibility_(response) {
+  let age = null, relation = null, bg = null;
+  response.getItemResponses().forEach(ir => {
+    const t = ir.getItem().getTitle();
+    if (t === Q_AGE) age = String(ir.getResponse());
+    if (t === Q_RELATION) relation = String(ir.getResponse());
+    if (t === Q_BACKGROUND) bg = ir.getResponse(); // 행별 배열
+  });
+  if (age === '아니요') return { ok: false, reason: '만 19세 미만' };
+  if (relation === '예') return { ok: false, reason: '연구자와 지도·평가 관계' };
+  if (bg) {
+    const idx = BACKGROUND_ROWS.indexOf(EXCLUDED_ROW);
+    const cells = [].concat(bg[idx] || []).filter(v => v && v !== '해당 없음');
+    if (cells.length) return { ok: false, reason: '제외 분야 경력: ' + cells.join(', ') };
+  }
+  return { ok: true };
+}
+
+// ── 제출 처리 ────────────────────────────────────────────────────────
+
 function onSubmit(e) {
   const response = e && e.response;
-  let chosen = null;
-  if (response) {
-    response.getItemResponses().forEach(ir => {
-      if (ir.getItem().getTitle() === SLOT_QUESTION_TITLE) chosen = String(ir.getResponse());
-    });
-  }
+  if (!response) return;
+  const answers = {};
+  response.getItemResponses().forEach(ir => { answers[ir.getItem().getTitle()] = ir.getResponse(); });
+  const chosen = answers[SLOT_QUESTION_TITLE] ? String(answers[SLOT_QUESTION_TITLE]) : null;
+  const email = response.getRespondentEmail();
 
-  // 1. 정원이 찬 슬롯을 선택지에서 뺀다.
+  // 1. 찬 슬롯을 선택지에서 뺀다.
   const item = slotItem_();
   const counts = countBySlot_();
-  const remaining = item.getChoices()
-    .map(c => c.getValue())
+  const remaining = item.getChoices().map(c => c.getValue())
     .filter(v => v === WAITLIST || (counts[v] || 0) < CAPACITY);
   if (remaining.length !== item.getChoices().length) item.setChoiceValues(remaining);
 
-  // 2. 배정표에 이름 채우기 → 참가자 번호 받기.
+  // 2. 스크리닝. 부적격이면 좌석을 주지 않고 중립 안내만 한다.
+  const elig = eligibility_(response);
+  if (!elig.ok) {
+    Logger.log('스크리닝 제외: %s', elig.reason);
+    if (SEND_CONFIRMATION_EMAIL && email) {
+      MailApp.sendEmail(email, '[AI 챗봇 학습 경험 연구] 신청 결과 안내', [
+        '관심을 가지고 신청해 주셔서 감사합니다.',
+        '아쉽지만 이번 연구의 참여 조건에 해당하지 않아 참여가 어렵습니다.',
+        '', CONTACT_LINE,
+      ].join('\n'));
+    }
+    return;
+  }
+
+  // 3. 배정표에 이름 기입 → 참가자 번호.
   const isWaitlist = chosen === WAITLIST;
   let pid = null;
   if (chosen && !isWaitlist) {
-    let name = '';
-    let contact = '';
-    response.getItemResponses().forEach(ir => {
-      const t = ir.getItem().getTitle();
-      if (t === '이름') name = String(ir.getResponse()).trim();
-      if (t.indexOf('연락처') === 0) contact = String(ir.getResponse()).trim();
-    });
-    pid = assignSeat_(chosen, name, contact);
+    pid = assignSeat_(chosen, String(answers[Q_NAME] || '').trim(), String(answers[Q_CONTACT] || '').trim());
   }
 
-  // 3. 확정 메일 (이메일 수집이 켜져 있을 때만).
-  if (!SEND_CONFIRMATION_EMAIL) return;
-  const email = response && response.getRespondentEmail();
-  if (!email || !chosen) return;
+  // 4. 확정 메일.
+  if (!SEND_CONFIRMATION_EMAIL || !email || !chosen) return;
   const subject = isWaitlist
-    ? '[AI 튜터 학습 실험] 대기자 등록 안내'
-    : `[AI 튜터 학습 실험] 참여 확정: ${chosen}`;
+    ? '[AI 챗봇 학습 경험 연구] 대기자 등록 안내'
+    : `[AI 챗봇 학습 경험 연구] 참여 확정: ${chosen}`;
   const body = isWaitlist
-    ? [
-        '대기자로 등록되었습니다. 빈자리가 나면 순서대로 연락드리겠습니다.',
-        '', CONTACT_LINE,
-      ].join('\n')
+    ? ['대기자로 등록되었습니다. 빈자리가 나면 순서대로 연락드리겠습니다.', '', CONTACT_LINE]
     : [
-        `참여가 확정되었습니다.`,
+        '참여가 확정되었습니다.',
         '',
-        pid ? `참가자 번호: ${pid}  (실험 당일 이 번호와 이름을 입력합니다)` : '',
+        pid ? `참가자 번호: ${pid}  (실험 당일 이 번호와 이름을 입력합니다)` : null,
         `일시: ${chosen}`,
         LOCATION_LINE,
-        '소요 시간: 약 1시간 10분 (컴퓨터 준비되어 있음, 준비물 없음)',
-        '사례비: 15,000원 (참여 완료 시 지급)',
+        '소요 시간: 약 75분, 최대 85분 (컴퓨터 준비되어 있음, 준비물 없음)',
+        '사례: 전 과정 완료 시 15,000원 (중단 시에도 참여 시간에 따라 지급)',
         '',
-        '시작 시각에 맞춰 도착해 주세요. 10분 이상 늦으면 참여가 어려울 수 있습니다.',
-        '참여가 어려워지면 미리 알려 주시면 다른 분께 기회가 갑니다.',
+        '시작 시각에 맞춰 도착해 주세요. 참여가 어려워지면 미리 알려 주시면 다른 분께 기회가 갑니다.',
         '', CONTACT_LINE,
-      ].filter(line => line !== null && !/___/.test(line)).join('\n');
-  MailApp.sendEmail(email, subject, body);
+      ];
+  MailApp.sendEmail(email, subject, body.filter(l => l !== null).join('\n'));
 }
 
-/**
- * 배정표에서 슬롯 순번(세션)에 해당하는 행 중 이름이 빈 첫 좌석에 이름을 적는다.
- * 비고 열이 비어 있으면 연락처를 적는다. 참여자 번호를 돌려준다 (자리가 없으면 null).
- */
+/** 배정표에서 해당 세션의 빈 좌석에 이름을 적고 참여자 번호를 돌려준다 (없으면 null). */
 function assignSeat_(slotLabel, name, contact) {
   const idx = buildSlots_().indexOf(slotLabel);
-  const session = idx < 0 ? 0 : idx + 1 + SESSION_OFFSET;
-  if (session <= 0 || !name) return null;
+  if (idx < 0 || !name) return null;
+  const session = idx + 1 + SESSION_OFFSET;
   const sheet = SpreadsheetApp.getActive().getSheetByName('배정표');
   if (!sheet) return null;
   const rows = sheet.getDataRange().getValues();
@@ -251,41 +349,10 @@ function assignSeat_(slotLabel, name, contact) {
     if (Number(rows[i][col.session]) !== session) continue;
     if (String(rows[i][col.name] || '').trim()) continue;
     sheet.getRange(i + 1, col.name + 1).setValue(name);
-    if (col.note != null && contact && !rows[i][col.note]) {
-      sheet.getRange(i + 1, col.note + 1).setValue(`${slotLabel} · ${contact}`);
+    if (col.note != null && !rows[i][col.note]) {
+      sheet.getRange(i + 1, col.note + 1).setValue(contact ? `${slotLabel} · ${contact}` : slotLabel);
     }
     return String(rows[i][col.pid]);
   }
   return null;
-}
-
-/** 슬롯별 응답 수. 대기자 선택은 세지 않는다. */
-function countBySlot_() {
-  const form = form_();
-  const counts = {};
-  form.getResponses().forEach(r => {
-    r.getItemResponses().forEach(ir => {
-      if (ir.getItem().getTitle() !== SLOT_QUESTION_TITLE) return;
-      const v = String(ir.getResponse());
-      if (v === WAITLIST) return;
-      counts[v] = (counts[v] || 0) + 1;
-    });
-  });
-  return counts;
-}
-
-function slotItem_() {
-  const form = form_();
-  const items = form.getItems(FormApp.ItemType.MULTIPLE_CHOICE)
-    .filter(i => i.getTitle() === SLOT_QUESTION_TITLE);
-  if (items.length === 0) {
-    throw new Error(`객관식 문항 "${SLOT_QUESTION_TITLE}"이 폼에 없습니다.`);
-  }
-  return items[0].asMultipleChoiceItem();
-}
-
-/** 현재 슬롯별 현황을 로그로 본다 (편집기에서 실행). */
-function status() {
-  const counts = countBySlot_();
-  buildSlots_().forEach(s => Logger.log('%s  %s/%s', s, counts[s] || 0, CAPACITY));
 }
