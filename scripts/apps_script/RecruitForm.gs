@@ -1,24 +1,38 @@
 /**
- * 참가자 모집 폼용 Apps Script — 슬롯별 정원(2명) 선착순 자동 마감 + 확정 메일.
- * CONTACT_LINE에 연락처를 적은 뒤 설치한다.
+ * 참가자 모집 폼 — 생성 + 슬롯별 정원(2명) 선착순 자동 마감 + 확정 메일.
  *
- * 설치 (1회, 구글 폼에서):
- *   1. 폼 편집 화면 → 우측 상단 ⋮ → 스크립트 편집기 → 이 파일 내용을 Code.gs에 붙여 넣기
- *   2. 폼 설정 → 응답 → "이메일 주소 수집"을 켠다 (확정 메일용). 안 켜면 메일만 생략된다.
- *   3. 폼에 객관식 문항 "희망 시간"을 만든다 (제목은 SLOT_QUESTION_TITLE과 같아야 함).
- *      선택지는 비워 두고 아래 4번이 채운다.
- *   4. 편집기에서 함수 `setup`을 선택해 ▶ 실행 → 권한 승인.
- *      → 선택지가 SLOTS로 채워지고, 응답 제출 시 `onSubmit`이 돌도록 트리거가 걸린다.
+ * 설치 (1회): 실험운영 시트의 Apps Script 프로젝트(Code.gs가 있는 곳)에
+ *   파일 추가(+) → "RecruitForm" 이름으로 이 내용을 붙여 넣고 저장.
+ *   CONTACT_LINE에 연락처를 적은 뒤, 함수 `createRecruitForm`을 선택해 ▶ 실행 → 권한 승인.
+ *   실행 로그에 다음이 찍힌다:
+ *     - 신청 링크(모집 글에 넣을 것)
+ *     - 편집 링크
+ *   응답은 이 시트에 "설문지 응답" 탭으로 자동 연결되고, 제출 트리거도 함께 걸린다.
  *
  * 동작:
  *   - 응답이 들어올 때마다 슬롯별 인원을 세서 CAPACITY명이 찬 슬롯을 선택지에서 뺀다.
  *   - 대기자 선택지(WAITLIST)는 절대 빼지 않는다.
- *   - 이메일을 수집하면 신청자에게 확정(또는 대기 등록) 메일을 보낸다.
+ *   - 신청자에게 확정(또는 대기 등록) 메일을 보낸다.
  *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 `resetChoices`를 실행한다 (찬 슬롯은 자동 제외).
+ *   - 현황은 `status` 실행 → 실행 로그.
  *
- * 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 시트에서 보이니
+ * 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니
  * 늦은 쪽에 다른 시간을 제안한다.
  */
+
+const FORM_TITLE = 'AI 튜터 학습 실험 참가 신청';
+const FORM_DESCRIPTION = [
+  '서울대학교 산업공학과 삶향상기술연구실에서 진행하는 학습 실험입니다.',
+  'AI 튜터와 1:1로 새로운 주제를 학습하는 경험을 연구합니다. 사전 지식은 필요 없습니다.',
+  '',
+  '■ 소요 시간: 약 1시간 10분 (사전 설문 → AI 튜터 학습 → 사후 설문)',
+  '■ 장소: 서울대학교 39동 336호 산업/인간공학 실험실 (컴퓨터 준비되어 있음)',
+  '■ 사례비: 참여 완료 시 15,000원',
+  '■ 대상: 서울대학교 재학생, 한국어 채팅 가능',
+  '',
+  '희망 시간을 고르면 바로 확정되며, 입력하신 이메일로 안내 메일이 갑니다.',
+  '대화 내용과 설문 응답은 연구 목적으로만 익명 처리되어 사용되며, 참여는 언제든 중단할 수 있습니다.',
+].join('\n');
 
 const SLOT_QUESTION_TITLE = '희망 시간';
 const CAPACITY = 2;
@@ -74,15 +88,59 @@ function buildSlots_() {
 const LOCATION_LINE = '장소: 서울대학교 39동 336호 산업/인간공학 실험실';
 const CONTACT_LINE = '문의: ___';
 
-/** 1회 실행: 선택지 채우기 + 제출 트리거 설치. */
-function setup() {
-  resetChoices();
-  const form = FormApp.getActiveForm();
+const PROP_FORM_ID = 'RECRUIT_FORM_ID';
+
+/** 1회 실행: 폼 생성 + 문항 + 응답 시트 연결 + 제출 트리거. */
+function createRecruitForm() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(PROP_FORM_ID)) {
+    const existing = FormApp.openById(props.getProperty(PROP_FORM_ID));
+    Logger.log('이미 만들어진 폼이 있습니다.\n신청 링크: %s\n편집 링크: %s',
+      existing.getPublishedUrl(), existing.getEditUrl());
+    Logger.log('새로 만들려면 스크립트 속성 %s 를 지우고 다시 실행하세요.', PROP_FORM_ID);
+    return;
+  }
+
+  const form = FormApp.create(FORM_TITLE);
+  form.setDescription(FORM_DESCRIPTION)
+    .setCollectEmail(true)
+    .setLimitOneResponsePerUser(false)
+    .setConfirmationMessage('신청이 접수되었습니다. 입력하신 이메일로 안내 메일을 보내 드렸습니다.');
+
+  form.addTextItem().setTitle('이름').setRequired(true);
+  form.addTextItem().setTitle('연락처 (전화번호 또는 카카오톡 아이디)').setRequired(true);
+  form.addTextItem().setTitle('소속 (학과·학년, 예: 산업공학과 3학년)').setRequired(true);
+  form.addMultipleChoiceItem()
+    .setTitle(SLOT_QUESTION_TITLE)
+    .setHelpText('남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이지만 실제 소요는 약 1시간 10분입니다.')
+    .setChoiceValues([...buildSlots_(), WAITLIST])
+    .setRequired(true);
+  form.addCheckboxItem()
+    .setTitle('확인')
+    .setChoiceValues(['소요 시간·장소·사례비 안내를 확인했으며, 참여가 어려워지면 미리 연락하겠습니다.'])
+    .setRequired(true);
+
+  // 응답을 이 시트에 새 탭으로 연결
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, SpreadsheetApp.getActive().getId());
+
+  props.setProperty(PROP_FORM_ID, form.getId());
+  installTrigger_(form);
+  Logger.log('폼 생성 완료. 슬롯 %s개, 정원 %s명/슬롯', buildSlots_().length, CAPACITY);
+  Logger.log('신청 링크 (모집 글에 넣기): %s', form.getPublishedUrl());
+  Logger.log('편집 링크: %s', form.getEditUrl());
+}
+
+function installTrigger_(form) {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'onSubmit')
     .forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('onSubmit').forForm(form).onFormSubmit().create();
-  Logger.log('설치 완료. 슬롯 %s개, 정원 %s명/슬롯', buildSlots_().length, CAPACITY);
+}
+
+function form_() {
+  const id = PropertiesService.getScriptProperties().getProperty(PROP_FORM_ID);
+  if (!id) throw new Error('폼이 아직 없습니다. createRecruitForm을 먼저 실행하세요.');
+  return FormApp.openById(id);
 }
 
 /** 선택지를 SLOTS 기준으로 다시 채운다 (이미 찬 슬롯은 제외). */
@@ -140,7 +198,7 @@ function onSubmit(e) {
 
 /** 슬롯별 응답 수. 대기자 선택은 세지 않는다. */
 function countBySlot_() {
-  const form = FormApp.getActiveForm();
+  const form = form_();
   const counts = {};
   form.getResponses().forEach(r => {
     r.getItemResponses().forEach(ir => {
@@ -154,7 +212,7 @@ function countBySlot_() {
 }
 
 function slotItem_() {
-  const form = FormApp.getActiveForm();
+  const form = form_();
   const items = form.getItems(FormApp.ItemType.MULTIPLE_CHOICE)
     .filter(i => i.getTitle() === SLOT_QUESTION_TITLE);
   if (items.length === 0) {
