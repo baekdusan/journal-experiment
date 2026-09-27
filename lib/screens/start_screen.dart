@@ -4,11 +4,14 @@ import '../config/experiment_config.dart';
 import '../providers/chat_provider.dart';
 import 'chat_screen.dart';
 
-/// 실험 시작 화면: 참가자 이름 + 시작 버튼.
+/// 실험 시작 화면: 참가자 번호 + 그룹(A/B) + 시작 버튼.
+///
+/// 참가자는 진행자에게 안내받은 그룹 글자만 고른다. 어느 글자가 처치군인지는
+/// [ExperimentConfig.blindLabels]에만 있고 화면에는 나오지 않는다.
+/// 그룹을 고르지 않으면 시작할 수 없으므로 조건이 기본값으로 조용히 잡히는 일이 없다.
 ///
 /// 시작 버튼이 실험의 t=0이다. 누르는 순간 대화·학습 상태·텔레메트리를 초기화하고
-/// 참가자 이름과 시작 시각을 기록한 뒤 채팅 화면으로 넘어간다.
-/// 조건(처치/대조)은 화면에 드러내지 않는다 — 양 조건이 같은 화면을 본다.
+/// 참가자 번호·조건·시작 시각을 기록한 뒤 채팅 화면으로 넘어간다.
 class StartScreen extends ConsumerStatefulWidget {
   const StartScreen({super.key});
 
@@ -18,6 +21,7 @@ class StartScreen extends ConsumerStatefulWidget {
 
 class _StartScreenState extends ConsumerState<StartScreen> {
   late final TextEditingController _controller;
+  String? _group;
 
   @override
   void initState() {
@@ -26,6 +30,9 @@ class _StartScreenState extends ConsumerState<StartScreen> {
       text: ExperimentConfig.participantIdFromUrl ?? '',
     );
     _controller.addListener(() => setState(() {}));
+    // URL에 조건이 있으면 그룹을 미리 선택해 둔다 (참가자는 확인만 하면 된다).
+    final fromUrl = ExperimentConfig.conditionFromUrl;
+    if (fromUrl != null) _group = ExperimentConfig.blindLabelFor(fromUrl);
   }
 
   @override
@@ -38,7 +45,9 @@ class _StartScreenState extends ConsumerState<StartScreen> {
 
   void _start() {
     final name = _name;
-    if (name.isEmpty) return;
+    final condition = ExperimentConfig.conditionForBlindLabel(_group);
+    if (name.isEmpty || condition == null) return;
+    ExperimentConfig.setCondition(condition);
     ref.read(chatControllerProvider.notifier).startExperiment(name);
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const ChatScreen()),
@@ -53,7 +62,7 @@ class _StartScreenState extends ConsumerState<StartScreen> {
     final glowColor = isDark
         ? const Color(0xFF0842A0).withValues(alpha: 0.25)
         : const Color(0xFFD3E3FD).withValues(alpha: 0.9);
-    final canStart = _name.isNotEmpty;
+    final canStart = _name.isNotEmpty && _group != null;
 
     return Scaffold(
       body: Container(
@@ -95,7 +104,7 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '이름을 입력하고 시작 버튼을 눌러 주세요.',
+                    '참가자 번호와 안내받은 그룹을 선택한 뒤 시작해 주세요.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: cs.onSurfaceVariant,
@@ -110,13 +119,29 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                     onSubmitted: (_) => _start(),
                     style: theme.textTheme.bodyLarge?.copyWith(fontSize: 16),
                     decoration: InputDecoration(
-                      labelText: '참가자 이름',
+                      labelText: '참가자 번호',
                       filled: true,
                       fillColor: isDark ? cs.surfaceContainer : cs.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  SegmentedButton<String>(
+                    key: const ValueKey('group-selector'),
+                    segments: [
+                      for (final label in ExperimentConfig.blindLabels.keys)
+                        ButtonSegment(
+                          value: label,
+                          label: Text('그룹 $label'),
+                        ),
+                    ],
+                    selected: _group == null ? const {} : {_group!},
+                    emptySelectionAllowed: true,
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) =>
+                        setState(() => _group = s.isEmpty ? null : s.first),
                   ),
                   const SizedBox(height: 20),
                   FilledButton(

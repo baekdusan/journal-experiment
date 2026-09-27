@@ -4,7 +4,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'config/experiment_config.dart';
 import 'firebase_options.dart';
-import 'screens/setup_screen.dart';
+import 'screens/start_screen.dart';
 
 /// Firebase를 초기화하고 앱을 시작하는 진입점.
 ///
@@ -136,7 +136,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const SetupScreen(),
+      home: const StartScreen(),
     );
   }
 }

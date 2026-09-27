@@ -21,9 +21,9 @@ fi
 IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "================ 참가자 PC에서 열 주소 ================"
-echo "  기본 주소:      http://${IP}:${PORT}/        (설정 화면에서 조건·PC 라벨 선택)"
-echo "  미리 선택 링크: http://${IP}:${PORT}/?condition=treatment&pc=A"
-echo "                  http://${IP}:${PORT}/?condition=control&pc=B"
+echo "  기본 주소:      http://${IP}:${PORT}/        (참가자가 번호와 그룹 A/B를 고른다)"
+echo "  미리 선택 링크: http://${IP}:${PORT}/?condition=a   (A = 처치군)"
+echo "                  http://${IP}:${PORT}/?condition=b   (B = 대조군)"
 echo "  이 노트북 확인용: http://localhost:${PORT}/"
 echo "======================================================="
 echo "노트북이 잠들지 않게 caffeinate로 감싸 실행합니다. 종료는 Ctrl-C."

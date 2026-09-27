@@ -32,9 +32,25 @@ class ExperimentConfig {
   /// 실험에서 로드맵 가시성 자체를 조작/복원하려면 이 값만 바꾸면 된다.
   static const bool showLearningRoadmap = false;
 
-  /// 진행자 설정 화면([SetupScreen])에서 고른 조건. URL보다 우선한다.
+  /// 시작 화면에서 참가자가 고른 그룹(A/B)이 매핑된 조건. URL보다 우선한다.
   static ExperimentCondition? _override;
   static String? _stationOverride;
+
+  /// 참가자에게 보이는 블라인드 라벨. 참가자는 안내받은 글자만 고르고,
+  /// 어느 글자가 처치군인지는 이 매핑에만 있다 (화면에 표시하지 않는다).
+  static const Map<String, ExperimentCondition> blindLabels = {
+    'A': ExperimentCondition.treatment,
+    'B': ExperimentCondition.control,
+  };
+
+  static ExperimentCondition? conditionForBlindLabel(String? label) =>
+      label == null ? null : blindLabels[label.trim().toUpperCase()];
+
+  static String blindLabelFor(ExperimentCondition c) =>
+      blindLabels.entries.firstWhere((e) => e.value == c).key;
+
+  /// 현재 조건의 블라인드 라벨. 내보내기에 함께 기록한다.
+  static String get blindLabel => blindLabelFor(condition);
 
   /// URL 쿼리(`?condition=`)가 가리키는 조건. 없거나 오타면 null.
   ///
@@ -46,19 +62,20 @@ class ExperimentConfig {
       return ExperimentCondition.control;
     }
     if (c == 'treatment' || c == 'addie') return ExperimentCondition.treatment;
-    return null;
+    // 블라인드 라벨(?condition=a|b)도 받는다.
+    return conditionForBlindLabel(c);
   }
 
-  /// 현재 조건. 진행자 설정 > URL > 기본값(처치군) 순.
+  /// 현재 조건. 시작 화면 선택 > URL > 기본값(처치군) 순.
   ///
-  /// 실제 운영에서는 [SetupScreen]이 명시적 선택을 강제하므로 기본값에
+  /// 실제 운영에서는 시작 화면이 그룹 선택을 강제하므로 기본값에
   /// 조용히 떨어지는 일은 없다. 기본값은 테스트·개발용 안전망이다.
   static ExperimentCondition get condition =>
       _override ?? conditionFromUrl ?? ExperimentCondition.treatment;
 
-  /// 조건이 어디서 왔는지 (setup | url | default). 내보내기에 기록한다.
+  /// 조건이 어디서 왔는지 (start | url | default). 내보내기에 기록한다.
   static String get conditionSource => _override != null
-      ? 'setup'
+      ? 'start'
       : (conditionFromUrl != null ? 'url' : 'default');
 
   static void setCondition(ExperimentCondition c) => _override = c;

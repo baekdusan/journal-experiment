@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ADDIE 모델 기반 적응형 학습 튜터 시스템. Flutter Web + Firebase AI (Vertex AI) + Riverpod 상태 관리를 사용합니다.
 
-**피험자 간 2조건 실험 시스템**: 진행자용 설정 화면(`setup_screen.dart`)에서 조건을 고른다. URL 쿼리 `?condition=treatment|control`은 미리 선택용 (`experiment_config.dart`, 우선순위 설정 > URL > 기본값).
+**피험자 간 2조건 실험 시스템**: 시작 화면(`start_screen.dart`)에서 참가자가 안내받은 그룹 A/B를 고른다. 매핑은 `ExperimentConfig.blindLabels`(A=처치군, B=대조군)에만 있고 화면에 표시하지 않는다. URL 쿼리 `?condition=`은 미리 선택용 (우선순위 시작 화면 > URL > 기본값).
 - 처치군(treatment): 아래의 구조화 오케스트레이션 전체
 - 대조군(control): 시스템 프롬프트 없는 순수 모델 (`_runFreeformFlow`, 라우팅 전부 건너뜀)
 - 자료 취득은 로컬 캐시 없이 **`Tool.googleSearch()` grounding**만 사용. 검색을 가진 에이전트는 Syllabus Designer 1단계와 학습자 대면 스트리밍(GeminiService) 둘뿐.
 - 모든 에이전트 프롬프트는 `lib/config/agent_prompts.dart`에 중앙화.
-- 앱은 **설정 화면(진행자: 조건·PC 라벨) → 시작 화면(참가자 이름 + 시작 버튼)** 순으로 시작한다. 시작 버튼이 t=0이며 대화·학습 상태·텔레메트리를 초기화한다 (`start_screen.dart` → `ChatController.startExperiment`).
+- 앱은 **시작 화면(참가자 번호 + 그룹 A/B + 시작 버튼)** 으로 시작한다. 시작 버튼이 t=0이며 대화·학습 상태·텔레메트리를 초기화한다 (`start_screen.dart` → `ChatController.startExperiment`).
 - **텔레메트리**: 턴·LLM 호출(토큰·지연·프롬프트·원문)·흐름 판정·UI 이벤트를 `telemetryProvider`에 쌓고, ⬇ 내보내기(v3.0)가 세션·학습 상태와 합쳐 JSON으로 내려준다. 수집 계층은 양 조건 공용이다.
 
 ### Core Architecture: Stateless Micro-Agent Pattern
@@ -97,8 +97,7 @@ lib/
 │   └── session_export_service.dart  # 세션 JSON 내보내기 (v3.0)
 │
 ├── screens/
-│   ├── setup_screen.dart            # 진행자용 조건·PC 라벨 선택 (참가자 화면엔 조건 비표시)
-│   ├── start_screen.dart            # 참가자 이름 + 시작 버튼 (t=0, 전체 초기화)
+│   ├── start_screen.dart            # 참가자 번호 + 그룹(A/B, 블라인드) + 시작 버튼 (t=0, 전체 초기화)
 │   └── chat_screen.dart             # 단일 세션 메인 화면
 │
 └── widgets/                         # Gemini 스타일 UI

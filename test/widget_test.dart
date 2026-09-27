@@ -13,33 +13,40 @@ import 'package:research_chatbot/screens/start_screen.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('설정 화면: 조건을 고르지 않으면 넘어갈 수 없다', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: MyApp()));
-    await tester.pumpAndSettle();
-    final button = tester.widget<FilledButton>(
-      find.byKey(const ValueKey('setup-confirm')),
-    );
-    expect(button.onPressed, isNull);
-    expect(find.byType(StartScreen), findsNothing);
-  });
-
-  testWidgets('설정 화면: 대조군을 고르면 조건이 바뀌고 시작 화면으로 간다',
+  testWidgets('앱은 시작 화면으로 열리고, 그룹을 고르지 않으면 시작할 수 없다',
       (tester) async {
     await tester.pumpWidget(const ProviderScope(child: MyApp()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('대조군 (순수 모델)'));
+    expect(find.byType(StartScreen), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('participant-name')), 'P07');
     await tester.pump();
-    await tester.enterText(find.byKey(const ValueKey('station-field')), 'B');
-    await tester.tap(find.byKey(const ValueKey('setup-confirm')));
+    final button = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('start-button')),
+    );
+    expect(button.onPressed, isNull);
+    // 화면에 처치/대조라는 말이 없다.
+    expect(find.textContaining('처치'), findsNothing);
+    expect(find.textContaining('대조'), findsNothing);
+  });
+
+  testWidgets('그룹 B를 고르고 시작하면 대조군으로 기록된다', (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const MyApp()),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('participant-name')), 'P08');
+    await tester.tap(find.text('그룹 B'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('start-button')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(StartScreen), findsOneWidget);
+    expect(find.byType(ChatScreen), findsOneWidget);
     expect(ExperimentConfig.isControl, isTrue);
-    expect(ExperimentConfig.conditionSource, 'setup');
-    expect(ExperimentConfig.station, 'B');
-    // 참가자 화면에는 조건이 드러나지 않는다.
-    expect(find.textContaining('대조군'), findsNothing);
-    expect(find.textContaining('처치군'), findsNothing);
+    expect(ExperimentConfig.blindLabel, 'B');
+    expect(ExperimentConfig.conditionSource, 'start');
+    expect(container.read(telemetryProvider).participant?.name, 'P08');
   });
 
   testWidgets('시작 화면: 이름이 비어 있으면 시작 버튼이 비활성이다', (tester) async {
@@ -64,6 +71,7 @@ void main() {
       ),
     );
     await tester.enterText(find.byKey(const ValueKey('participant-name')), ' P07 ');
+    await tester.tap(find.text('그룹 A'));
     await tester.pump();
 
     final before = DateTime.now();
