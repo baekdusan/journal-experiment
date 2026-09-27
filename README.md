@@ -190,7 +190,21 @@ flutterfire configure --project=addie-tutor --platforms=web
 
 ---
 
-## 배포 (Firebase Hosting + App Check)
+## 현장 운영 방식 A: 노트북에서 LAN 서빙 (권장, 배포 없음)
+
+사이트를 공개하지 않고 실험자 노트북이 같은 Wi-Fi에 `build/web`을 서빙한다. API 키 남용 걱정과 App Check 설정이 필요 없고, 실험이 끝나면 Ctrl-C로 끝난다.
+
+```bash
+./serve_lan.sh          # 빌드 후 8080 포트로 서빙, 참가자 PC용 주소를 찍어 준다
+./serve_lan.sh --no-build
+```
+
+- 참가자 PC 주소: `http://<노트북 IP>:8080/?condition=treatment&pc=A`, `…/?condition=control&pc=B`.
+- 노트북과 두 PC가 **같은 네트워크**여야 하고, PC들도 **인터넷이 되어야** 한다 (Gemini 호출은 PC 브라우저에서 구글로 직접 나간다).
+- 처음 접속이 안 되면: macOS 방화벽에서 python 허용, 또는 공용 Wi-Fi의 클라이언트 격리(AP isolation) 여부 확인. 격리돼 있으면 노트북 개인 핫스팟에 PC들을 붙이는 게 가장 확실하다.
+- 현장 전에 사무실 등에서 다른 기기로 한 번 접속해 본다.
+
+## 현장 운영 방식 B: Firebase Hosting 배포 + App Check
 
 실험 사이트: **https://addie-tutor.web.app** (`firebase.json`의 hosting → `build/web`).
 
