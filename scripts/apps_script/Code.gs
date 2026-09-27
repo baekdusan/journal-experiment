@@ -41,6 +41,30 @@ function authorize() {
   Logger.log('권한 OK. 백업 폴더: %s', f.getUrl());
 }
 
+/**
+ * 분석용 읽기 토큰 발급. 편집기에서 ▶ 실행 → 로그에 찍힌 토큰을 분석자에게 전달.
+ * 토큰은 스크립트 속성에만 저장된다 (코드·저장소에 남지 않음). 다시 실행하면 새 토큰으로 교체.
+ */
+function makeReadToken() {
+  const token = Utilities.getUuid().replace(/-/g, '');
+  PropertiesService.getScriptProperties().setProperty('READ_TOKEN', token);
+  Logger.log('READ_TOKEN: %s', token);
+}
+
+/** 토큰이 맞을 때만 탭 내용을 돌려준다. ?action=read&token=…&sheet=탭이름 (sheet 없으면 탭 목록). */
+function read_(p) {
+  const expected = PropertiesService.getScriptProperties().getProperty('READ_TOKEN');
+  if (!expected || p.token !== expected) return { ok: false, reason: 'unauthorized' };
+  const ss = SpreadsheetApp.getActive();
+  if (!p.sheet) {
+    return { ok: true, sheets: ss.getSheets().map(sh => ({ name: sh.getName(), rows: sh.getLastRow(), cols: sh.getLastColumn() })) };
+  }
+  const sh = ss.getSheetByName(p.sheet);
+  if (!sh) return { ok: false, reason: 'no_sheet' };
+  const values = sh.getDataRange().getDisplayValues();
+  return { ok: true, sheet: p.sheet, values: values };
+}
+
 function doGet(e) {
   const p = (e && e.parameter) || {};
   try {
@@ -57,6 +81,8 @@ function doGet(e) {
           p.startedAt || '', '', '', '', '', '',
         ]);
         return json_({ ok: true });
+      case 'read':
+        return json_(read_(p));
       case 'ping':
         return json_({ ok: true, time: new Date().toISOString() });
       default:
