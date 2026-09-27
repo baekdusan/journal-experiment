@@ -236,17 +236,15 @@ flutterfire configure --project=addie-tutor --platforms=web
 빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서 Gemini를 호출하는 것을 **App Check(reCAPTCHA Enterprise)** 로 막는다. 등록 도메인에서 실행 중인 이 앱이 발급받은 토큰이 없는 요청은 Vertex AI가 거부한다. 참가자에게는 아무것도 보이지 않는다.
 
 ```bash
-# 1. 시트 조회 URL: scripts/apps_script/Code.gs를 시트에 붙여 웹 앱으로 배포 → URL 복사
-# 2. 빌드 (REGISTRY_URL이 없으면 시트 조회 없이 그룹 A/B 선택 모드로 나간다)
-flutter build web \
-  --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD) \
-  --dart-define=BUILD_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}') \
-  --dart-define=REGISTRY_URL=<Apps Script 웹 앱 URL>
-# 3. 배포
-firebase deploy --only hosting
-# 4. 실험이 끝나면 사이트를 내린다
+# 1. 시트 조회 URL: scripts/apps_script/Code.gs를 시트에 붙여 웹 앱으로 배포 → URL을 .env.deploy에
+#      REGISTRY_URL=https://script.google.com/macros/s/…/exec      (.env.deploy는 gitignore)
+# 2. 빌드 + 배포 (REGISTRY_URL이 없으면 중단한다)
+./deploy.sh              # 또는 ./deploy.sh --build-only
+# 3. 실험이 끝나면 사이트를 내린다
 firebase hosting:disable
 ```
+
+배포 후 확인: `https://addie-tutor.web.app/`가 열리고, 배정표의 번호+이름으로 시작되며 없는 번호로는 막히는지 본다.
 
 - 시트 조회로 등록된 참가자만 시작할 수 있으므로 App Check(reCAPTCHA Enterprise)는 선택 사항이다. 넣으려면 `--dart-define=RECAPTCHA_SITE_KEY=<사이트 키>`를 추가하고, 배포 **후** Firebase 콘솔 App Check → API 탭 → Vertex AI를 "적용"으로 켠다 (먼저 켜면 키 없는 빌드가 403).
 - 시트 조회는 화면 단계의 잠금이다. 빌드된 JS에서 API 키를 꺼내는 사람까지 막지는 못하므로 주소를 공개하지 않고, 끝나면 사이트를 내린다.
