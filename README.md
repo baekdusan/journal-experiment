@@ -240,8 +240,9 @@ flutterfire configure --project=addie-tutor --platforms=web
 #      REGISTRY_URL=https://script.google.com/macros/s/…/exec      (.env.deploy는 gitignore)
 # 2. 빌드 + 배포 (REGISTRY_URL이 없으면 중단한다)
 ./deploy.sh              # 또는 ./deploy.sh --build-only
-# 3. 실험이 끝나면 사이트를 내린다
-firebase hosting:disable
+# 3. 실험 당일 아침: 올리기 / 끝나면: 내리기
+./deploy.sh --no-build   # 이미 만든 build/web을 그대로 올림 (1분)
+./deploy.sh --down       # 사이트 내림 → 404. 평소에는 내려 둔다
 ```
 
 배포 후 확인: `https://addie-tutor.web.app/`가 열리고, 배정표의 번호+이름으로 시작되며 없는 번호로는 막히는지 본다.
