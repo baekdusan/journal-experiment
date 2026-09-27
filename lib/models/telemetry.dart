@@ -2,7 +2,11 @@ import 'package:uuid/uuid.dart';
 
 /// 실험 참가자 정보. 시작 화면에서 이름을 받고 시작 버튼을 누른 시각을 기록한다.
 class ParticipantInfo {
+  /// 참가자 번호(예: P007). 파일명과 시트 조회 키.
   final String name;
+
+  /// 참가자 이름(시트 조회에 썼을 때만). 내보내기에는 남지만 파일명에는 안 쓴다.
+  final String? displayName;
 
   /// 시작 버튼을 누른 시각. 모든 상대 시간(`tSinceStartMs`)의 기준점이다.
   final DateTime startedAt;
@@ -14,10 +18,12 @@ class ParticipantInfo {
     required this.name,
     required this.startedAt,
     this.station,
+    this.displayName,
   });
 
   Map<String, dynamic> toJson() => {
         'name': name,
+        'displayName': displayName,
         'startedAt': startedAt.toIso8601String(),
         'station': station,
       };

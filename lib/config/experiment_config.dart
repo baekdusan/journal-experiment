@@ -46,6 +46,24 @@ class ExperimentConfig {
   static ExperimentCondition? conditionForBlindLabel(String? label) =>
       label == null ? null : blindLabels[label.trim().toUpperCase()];
 
+  /// 'treatment' | 'control' | 블라인드 라벨 문자열을 조건으로. 모르면 null.
+  static ExperimentCondition? conditionFromLabel(String? v) {
+    final c = v?.toLowerCase().trim();
+    if (c == null || c.isEmpty) return null;
+    if (c == 'control' || c == 'freeform' || c == 'free') {
+      return ExperimentCondition.control;
+    }
+    if (c == 'treatment' || c == 'addie') return ExperimentCondition.treatment;
+    return conditionForBlindLabel(c);
+  }
+
+  /// 참가자 조회·세션 기록용 Apps Script 웹 앱 URL. 비어 있으면 조회 없이
+  /// 시작 화면에서 그룹 A/B를 직접 고른다 (로컬 개발·테스트).
+  static const String registryUrl =
+      String.fromEnvironment('REGISTRY_URL', defaultValue: '');
+
+  static bool get useRegistry => registryUrl.isNotEmpty;
+
   static String blindLabelFor(ExperimentCondition c) =>
       blindLabels.entries.firstWhere((e) => e.value == c).key;
 
@@ -56,15 +74,8 @@ class ExperimentConfig {
   ///
   /// 예) `https://HOST/?condition=control`   → 대조군(free form)
   ///     `https://HOST/?condition=treatment` → 처치군(구조화)
-  static ExperimentCondition? get conditionFromUrl {
-    final c = Uri.base.queryParameters['condition']?.toLowerCase().trim();
-    if (c == 'control' || c == 'freeform' || c == 'free') {
-      return ExperimentCondition.control;
-    }
-    if (c == 'treatment' || c == 'addie') return ExperimentCondition.treatment;
-    // 블라인드 라벨(?condition=a|b)도 받는다.
-    return conditionForBlindLabel(c);
-  }
+  static ExperimentCondition? get conditionFromUrl =>
+      conditionFromLabel(Uri.base.queryParameters['condition']);
 
   /// 현재 조건. 시작 화면 선택 > URL > 기본값(처치군) 순.
   ///

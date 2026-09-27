@@ -21,7 +21,7 @@ fi
 IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "================ 참가자 PC에서 열 주소 ================"
-echo "  기본 주소:      http://${IP}:${PORT}/        (참가자가 번호와 그룹 A/B를 고른다)"
+echo "  기본 주소:      http://${IP}:${PORT}/        (REGISTRY_URL 없는 로컬 빌드: 번호 + 그룹 A/B 선택)"
 echo "  미리 선택 링크: http://${IP}:${PORT}/?condition=a   (A = 처치군)"
 echo "                  http://${IP}:${PORT}/?condition=b   (B = 대조군)"
 echo "  이 노트북 확인용: http://localhost:${PORT}/"

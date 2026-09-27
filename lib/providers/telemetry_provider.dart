@@ -17,13 +17,18 @@ class Telemetry extends _$Telemetry {
   SessionTelemetry build() => const SessionTelemetry();
 
   /// 시작 버튼: 참가자 기록 + 환경 스냅샷 + 브라우저 이벤트 구독.
-  void startExperiment({required String name, String? station}) {
+  void startExperiment({
+    required String name,
+    String? station,
+    String? displayName,
+  }) {
     _disposeWindowListeners?.call();
     state = SessionTelemetry(
       participant: ParticipantInfo(
         name: name,
         startedAt: DateTime.now(),
         station: station,
+        displayName: displayName,
       ),
       environment: environmentSnapshot(),
     );

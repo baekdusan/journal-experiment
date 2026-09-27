@@ -186,12 +186,64 @@ String _$conversationalAgentServiceHash() =>
 ///
 /// 학습자 프로파일 기반으로 ADDIE 모델 커리큘럼을 생성합니다.
 
-@ProviderFor(syllabusDesignerService)
-final syllabusDesignerServiceProvider = SyllabusDesignerServiceProvider._();
+@ProviderFor(participantRegistryService)
+final participantRegistryServiceProvider =
+    ParticipantRegistryServiceProvider._();
 
 /// [SyllabusDesignerService]의 싱글톤 인스턴스 제공.
 ///
 /// 학습자 프로파일 기반으로 ADDIE 모델 커리큘럼을 생성합니다.
+
+final class ParticipantRegistryServiceProvider
+    extends
+        $FunctionalProvider<
+          ParticipantRegistryService,
+          ParticipantRegistryService,
+          ParticipantRegistryService
+        >
+    with $Provider<ParticipantRegistryService> {
+  /// [SyllabusDesignerService]의 싱글톤 인스턴스 제공.
+  ///
+  /// 학습자 프로파일 기반으로 ADDIE 모델 커리큘럼을 생성합니다.
+  ParticipantRegistryServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'participantRegistryServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$participantRegistryServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<ParticipantRegistryService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  ParticipantRegistryService create(Ref ref) {
+    return participantRegistryService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ParticipantRegistryService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ParticipantRegistryService>(value),
+    );
+  }
+}
+
+String _$participantRegistryServiceHash() =>
+    r'1a1a789c9159bf07a3f9d0922651dfc59f2278a9';
+
+@ProviderFor(syllabusDesignerService)
+final syllabusDesignerServiceProvider = SyllabusDesignerServiceProvider._();
 
 final class SyllabusDesignerServiceProvider
     extends
@@ -201,9 +253,6 @@ final class SyllabusDesignerServiceProvider
           SyllabusDesignerService
         >
     with $Provider<SyllabusDesignerService> {
-  /// [SyllabusDesignerService]의 싱글톤 인스턴스 제공.
-  ///
-  /// 학습자 프로파일 기반으로 ADDIE 모델 커리큘럼을 생성합니다.
   SyllabusDesignerServiceProvider._()
     : super(
         from: null,
@@ -754,7 +803,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'05234962ba03f73098187ef05e062d3304e57677';
+String _$chatControllerHash() => r'ac9519788113f2e8d8b7ed4d266bf95eb48d1981';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

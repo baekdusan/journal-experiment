@@ -20,6 +20,7 @@ import '../config/experiment_config.dart';
 import '../models/telemetry.dart';
 import '../providers/telemetry_provider.dart';
 import '../services/llm_call_recorder.dart';
+import '../services/participant_registry_service.dart';
 
 part 'chat_provider.g.dart';
 
@@ -51,6 +52,11 @@ ConversationalAgentService conversationalAgentService(Ref ref) {
 /// [SyllabusDesignerService]의 싱글톤 인스턴스 제공.
 ///
 /// 학습자 프로파일 기반으로 ADDIE 모델 커리큘럼을 생성합니다.
+@Riverpod(keepAlive: true)
+ParticipantRegistryService participantRegistryService(Ref ref) {
+  return ParticipantRegistryService();
+}
+
 @Riverpod(keepAlive: true)
 SyllabusDesignerService syllabusDesignerService(Ref ref) {
   return SyllabusDesignerService();
@@ -252,13 +258,27 @@ class ChatController extends _$ChatController {
   ///    - 준비 안됨? → Analyst Flow (정보 수집)
   ///    - 준비 완료? → Intent 분류 → Tutor/Feedback Flow
   /// 시작 화면의 시작 버튼. 대화·학습 상태·텔레메트리를 모두 초기화한 뒤
-  /// 참가자를 기록하고 시간 측정을 시작한다.
-  void startExperiment(String participantName) {
+  /// 참가자를 기록하고 시간 측정을 시작한다. 시트 조회를 쓰는 배포에서는
+  /// 세션기록 탭에 시작 행도 남긴다 (실패해도 진행).
+  void startExperiment(String participantId, {String? displayName}) {
     createNewSession();
-    ref.read(telemetryProvider.notifier).startExperiment(
-          name: participantName,
-          station: ExperimentConfig.station,
-        );
+    final telemetry = ref.read(telemetryProvider.notifier);
+    telemetry.startExperiment(
+      name: participantId,
+      station: ExperimentConfig.station,
+      displayName: displayName,
+    );
+    final registry = ref.read(participantRegistryServiceProvider);
+    if (registry.isEnabled) {
+      unawaited(registry
+          .logStart(
+            pid: participantId,
+            name: displayName ?? '',
+            condition: ExperimentConfig.conditionLabel,
+            startedAt: telemetry.startedAt ?? DateTime.now(),
+          )
+          .then((ok) => telemetry.recordUi('registry.start', {'ok': ok})));
+    }
   }
 
   Future<void> sendMessage(
@@ -457,11 +477,21 @@ class ChatController extends _$ChatController {
       telemetryNotifier.recordUi('export', {'sessionId': sessionId});
       telemetryNotifier.markExported();
 
-      await exportService.exportSession(
+      final jsonBody = await exportService.exportSession(
         session,
         learningState,
         ref.read(telemetryProvider),
       );
+
+      // 시트 쪽 Drive 폴더에도 전문을 백업한다. 다운로드가 누락돼도 남도록.
+      final registry = ref.read(participantRegistryServiceProvider);
+      if (registry.isEnabled) {
+        final url = await registry.backupExport(jsonBody);
+        telemetryNotifier.recordUi('registry.backup', {'ok': url != null, 'url': url});
+        if (url == null) {
+          throw Exception('로컬 저장은 됐지만 시트 백업에 실패했습니다. 파일을 직접 보관해 주세요.');
+        }
+      }
     } catch (e) {
       throw Exception('세션 다운로드 실패: $e');
     }

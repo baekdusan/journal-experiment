@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ADDIE 모델 기반 적응형 학습 튜터 시스템. Flutter Web + Firebase AI (Vertex AI) + Riverpod 상태 관리를 사용합니다.
 
-**피험자 간 2조건 실험 시스템**: 시작 화면(`start_screen.dart`)에서 참가자가 안내받은 그룹 A/B를 고른다. 매핑은 `ExperimentConfig.blindLabels`(A=처치군, B=대조군)에만 있고 화면에 표시하지 않는다. URL 쿼리 `?condition=`은 미리 선택용 (우선순위 시작 화면 > URL > 기본값).
+**피험자 간 2조건 실험 시스템**: 배포 빌드(`REGISTRY_URL` 있음)는 시작 화면에서 참가자 번호+이름을 실험운영 시트 배정표에 조회해 조건을 받는다 (`participant_registry_service.dart`, `scripts/apps_script/Code.gs`). 로컬 빌드는 그룹 A/B 직접 선택이며 매핑은 `ExperimentConfig.blindLabels`(A=처치군, B=대조군)에만 있다. 조건은 어느 모드에서도 화면에 표시하지 않는다.
 - 처치군(treatment): 아래의 구조화 오케스트레이션 전체
 - 대조군(control): 시스템 프롬프트 없는 순수 모델 (`_runFreeformFlow`, 라우팅 전부 건너뜀)
 - 자료 취득은 로컬 캐시 없이 **`Tool.googleSearch()` grounding**만 사용. 검색을 가진 에이전트는 Syllabus Designer 1단계와 학습자 대면 스트리밍(GeminiService) 둘뿐.
@@ -94,7 +94,8 @@ lib/
 │   ├── conversational_agent_service.dart # Analyst/Feedback + Tutor systemInstruction
 │   ├── syllabus_designer_service.dart   # 커리큘럼 생성 (2단계: 검색 조사 → JSON 구조화)
 │   ├── step_progress_service.dart   # 단계 진행 판정
-│   └── session_export_service.dart  # 세션 JSON 내보내기 (v3.0)
+│   ├── session_export_service.dart  # 세션 JSON 내보내기 (v3.0)
+│   └── participant_registry_service.dart # 시트 조회(번호+이름→조건)·세션기록·Drive 백업
 │
 ├── screens/
 │   ├── start_screen.dart            # 참가자 번호 + 그룹(A/B, 블라인드) + 시작 버튼 (t=0, 전체 초기화)

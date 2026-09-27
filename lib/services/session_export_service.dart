@@ -24,7 +24,8 @@ import '../platform/web_env.dart';
 ///
 /// 대조군도 같은 수집 계층을 타므로 조건 간 교란은 없다.
 class SessionExportService {
-  Future<void> exportSession(
+  /// 브라우저 다운로드를 트리거하고, 같은 JSON 문자열을 돌려준다 (시트 백업용).
+  Future<String> exportSession(
     ChatSession session,
     LearningState finalState,
     SessionTelemetry telemetry,
@@ -34,6 +35,7 @@ class SessionExportService {
       final filename = _generateFilename(session, telemetry);
       final jsonString = const JsonEncoder.withIndent('  ').convert(exportData);
       downloadTextFile(filename, jsonString, 'application/json');
+      return jsonString;
     } catch (e) {
       throw Exception('세션 내보내기 실패: $e');
     }

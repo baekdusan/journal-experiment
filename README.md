@@ -12,9 +12,20 @@ ADDIE 모델 기반 적응형 학습 튜터 — **피험자 간 2조건(Between-
 
 ## 실험 조건 접속 (URL 분기)
 
-시작 화면에서 참가자가 **참가자 번호**와 진행자에게 안내받은 **그룹(A/B)** 을 고른다 (`lib/screens/start_screen.dart`). 어느 글자가 어느 조건인지는 `ExperimentConfig.blindLabels`에만 있고(현재 **A = 처치군, B = 대조군**) 화면에는 나오지 않는다. **그룹을 고르지 않으면 시작할 수 없으므로** 조건이 기본값으로 조용히 잡히는 일이 없다.
+### 배포 빌드: 실험운영 시트 조회 (권장)
 
-URL 쿼리는 선택 사항이다. 넣어 두면 그룹이 미리 선택되어 참가자는 확인만 하면 된다 (`lib/config/experiment_config.dart`). 우선순위는 시작 화면 선택 > URL > 기본값(처치군)이며, 내보내기 JSON에 `experiment.condition`, `blindLabel`, `conditionSource`(`start | url | default`)가 기록된다.
+시작 화면에서 참가자가 **참가자 번호와 이름**을 입력하면, 앱이 실험운영 시트의 **배정표** 탭을 조회해(Apps Script 웹 앱, `scripts/apps_script/Code.gs`) 둘 다 맞을 때만 시작한다. 조건은 시트의 "조건" 열(처치/비교)에서 오고 화면에는 나오지 않는다. 등록되지 않은 사람은 시작할 수 없다.
+
+- 배정표 탭: 헤더 행에 `참여자 번호`, `조건`(필수), `이름`(있으면 대조), `사용 여부`(불참이면 차단), `실시 날짜`가 있으면 열 순서와 무관하게 찾는다. 시작 시 `실시 날짜`와 `사용 여부`(→ 사용)를 자동으로 채운다.
+- 세션기록 탭: 시작·내보내기 시각, 소요, 턴 수, 오류/재시도 수가 자동으로 쌓인다 (탭이 없으면 만든다).
+- Drive 폴더 "실험 세션 백업": ⬇ 내보내기 시 JSON 전문이 자동 저장된다. 참가자 PC의 다운로드가 누락돼도 여기 남는다.
+- 설치는 `scripts/apps_script/Code.gs` 상단 주석대로: 시트 → 확장 프로그램 → Apps Script에 붙여 넣고 웹 앱으로 배포(실행: 나, 액세스: 모든 사용자) → URL을 `--dart-define=REGISTRY_URL=…`로 빌드에 넣는다.
+
+### 로컬 빌드: 그룹 A/B 직접 선택
+
+`REGISTRY_URL` 없이 빌드하면 시작 화면이 **참가자 번호 + 그룹(A/B)** 선택으로 바뀐다. 매핑은 `ExperimentConfig.blindLabels`(**A = 처치군, B = 대조군**)에만 있고 화면에는 나오지 않는다. 그룹을 고르지 않으면 시작할 수 없다.
+
+URL 쿼리 `?condition=`은 선택 사항이며 그룹을 미리 선택해 둘 뿐이다 (`lib/config/experiment_config.dart`). 우선순위는 시작 화면 > URL > 기본값(처치군)이며, 내보내기 JSON에 `experiment.condition`, `blindLabel`, `conditionSource`(`start | url | default`)가 기록된다.
 
 | 조건 | URL |
 |------|-----|
@@ -225,19 +236,20 @@ flutterfire configure --project=addie-tutor --platforms=web
 빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서 Gemini를 호출하는 것을 **App Check(reCAPTCHA Enterprise)** 로 막는다. 등록 도메인에서 실행 중인 이 앱이 발급받은 토큰이 없는 요청은 Vertex AI가 거부한다. 참가자에게는 아무것도 보이지 않는다.
 
 ```bash
-# 1. 사이트 키: Firebase 콘솔 → App Check → 앱 → reCAPTCHA Enterprise 등록 (GCP에서 웹사이트용 점수 기반 키 생성, 도메인 addie-tutor.web.app) → 사이트 키 복사
-# 2. 빌드 (사이트 키 없이 빌드하면 App Check가 꺼진 채 나간다)
+# 1. 시트 조회 URL: scripts/apps_script/Code.gs를 시트에 붙여 웹 앱으로 배포 → URL 복사
+# 2. 빌드 (REGISTRY_URL이 없으면 시트 조회 없이 그룹 A/B 선택 모드로 나간다)
 flutter build web \
   --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD) \
   --dart-define=BUILD_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}') \
-  --dart-define=RECAPTCHA_SITE_KEY=<사이트 키>
+  --dart-define=REGISTRY_URL=<Apps Script 웹 앱 URL>
 # 3. 배포
 firebase deploy --only hosting
-# 4. 배포 후 Firebase 콘솔 → App Check → API 탭 → Vertex AI(Firebase AI Logic) → "적용"
-#    (적용을 먼저 켜면 키 없는 옛 빌드가 403으로 죽는다. 순서 주의)
-# 5. 실험이 끝나면 사이트를 내린다 (주소를 아는 사람의 사용을 막는 가장 단순한 방법)
+# 4. 실험이 끝나면 사이트를 내린다
 firebase hosting:disable
 ```
+
+- 시트 조회로 등록된 참가자만 시작할 수 있으므로 App Check(reCAPTCHA Enterprise)는 선택 사항이다. 넣으려면 `--dart-define=RECAPTCHA_SITE_KEY=<사이트 키>`를 추가하고, 배포 **후** Firebase 콘솔 App Check → API 탭 → Vertex AI를 "적용"으로 켠다 (먼저 켜면 키 없는 빌드가 403).
+- 시트 조회는 화면 단계의 잠금이다. 빌드된 JS에서 API 키를 꺼내는 사람까지 막지는 못하므로 주소를 공개하지 않고, 끝나면 사이트를 내린다.
 
 - 로컬 개발(`flutter run`)은 사이트 키 없이 App Check가 꺼진 채 돈다. 콘솔에서 "적용"을 켠 뒤에는 로컬에서 Gemini 호출이 403이 나므로, 그때는 App Check 디버그 토큰을 등록하거나 잠시 "모니터링"으로 내린다.
 - App Check는 링크로 사이트에 들어와 채팅하는 것까지는 막지 못한다. 주소를 퍼뜨리지 않고, 실험 후 사이트를 내린다.
@@ -297,7 +309,8 @@ lib/
 │   ├── conversational_agent_service.dart # Analyst / Feedback / Tutor systemInstruction
 │   ├── syllabus_designer_service.dart    # 2단계: 검색 조사 → JSON 구조화
 │   ├── step_progress_service.dart
-│   └── session_export_service.dart       # v3.0 JSON 내보내기 (참가자·환경·턴·호출·이벤트 전부)
+│   ├── session_export_service.dart       # v3.0 JSON 내보내기 (참가자·환경·턴·호출·이벤트 전부)
+│   └── participant_registry_service.dart # 실험운영 시트 조회·세션 기록·내보내기 백업 (Apps Script)
 │
 ├── screens/
 │   ├── start_screen.dart          # 참가자 번호 + 그룹(A/B, 블라인드) + 시작 버튼 (t=0)
