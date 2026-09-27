@@ -15,7 +15,9 @@
  *       "참여자 번호"(필수) · "조건"(필수: 처치/비교, treatment/control, A/B)
  *       "이름"(있으면 이름까지 대조) · "사용 여부"(불참이면 시작 차단, 시작 시 '사용' 기록)
  *       "실시 날짜"(시작 시 오늘 날짜 기록)
- *   [세션기록] 이 스크립트가 행을 추가한다 (없으면 만든다)
+ *   [세션기록] 헤더 행(1~5행 중 "참여자 번호"가 있는 행)을 찾아 참가자 행에 쓴다:
+ *       시작 시 "학습 시작"(HH:MM), 저장 시 "학습 종료"(HH:MM)와 "특이사항"(오류/재시도/백업 링크).
+ *       "날짜"가 비어 있으면 함께 채운다. 참가자 행이 없으면 맨 아래에 요약 행을 붙인다.
  *   Drive 폴더 "실험 세션 백업": 내보내기 JSON 전문을 저장한다 (없으면 만든다)
  *
  * 요청:
@@ -36,7 +38,10 @@ function doGet(e) {
         return json_(lookup_(p.pid, p.name));
       case 'start':
         markStarted_(p.pid);
-        appendLog_([
+        logSession_(p.pid, {
+          '학습 시작': hhmm_(p.startedAt),
+          '날짜': dateOnly_(p.startedAt),
+        }, [
           new Date(), 'start', norm_(p.pid), norm_(p.name), p.condition || '',
           p.startedAt || '', '', '', '', '', '',
         ]);
@@ -67,7 +72,15 @@ function doPost(e) {
     const filename = [stamp, experiment.condition || 'unknown', pid || 'session'].join('_') + '.json';
     const file = folder_().createFile(filename, body, 'application/json');
 
-    appendLog_([
+    const note = '턴 ' + (summary.turnCount || 0) +
+      ' · 오류 ' + (summary.errors || 0) +
+      ' · 재시도 ' + (calls.retried || 0) +
+      ' · 백업 ' + file.getUrl();
+    logSession_(pid, {
+      '학습 종료': hhmm_(participant.endedAt),
+      '날짜': dateOnly_(participant.startedAt),
+      '특이사항': note,
+    }, [
       new Date(), 'export', pid, name, experiment.condition || '',
       participant.startedAt || '', participant.endedAt || '',
       Math.round((participant.totalDurationMs || 0) / 1000),
@@ -155,7 +168,13 @@ function norm_(v) {
   return String(v == null ? '' : v).replace(/\s+/g, '').trim().toUpperCase();
 }
 
-function appendLog_(row) {
+/**
+ * 세션기록 탭의 참가자 행에 값을 쓴다. 헤더 이름으로 열을 찾으므로 열 순서는 무관.
+ * 참가자 행이나 헤더를 못 찾으면 [fallbackRow]를 맨 아래에 붙인다.
+ * 비어 있는 셀만 채운다 — 진행자가 손으로 적은 값을 덮어쓰지 않는다.
+ * 단, "특이사항"은 기존 내용 뒤에 이어 붙인다.
+ */
+function logSession_(pid, values, fallbackRow) {
   const ss = SpreadsheetApp.getActive();
   let sheet = ss.getSheetByName(LOG_SHEET);
   if (!sheet) {
@@ -164,8 +183,58 @@ function appendLog_(row) {
       '기록 시각', '이벤트', '참가자 번호', '이름', '조건',
       '시작 시각', '종료 시각', '소요(초)', '턴 수', '오류 / 재시도', '백업 파일',
     ]);
+    sheet.appendRow(fallbackRow);
+    return;
   }
-  sheet.appendRow(row);
+  const rows = sheet.getDataRange().getValues();
+  let headerRow = -1;
+  const cols = {};
+  for (let r = 0; r < Math.min(rows.length, 10) && headerRow < 0; r++) {
+    rows[r].forEach((cell, c) => {
+      const h = String(cell || '').replace(/\s+/g, '');
+      if (h === '참여자번호' || h === '참가자번호') { headerRow = r; cols.pid = c; }
+    });
+    if (headerRow >= 0) {
+      rows[r].forEach((cell, c) => {
+        const h = String(cell || '').replace(/\s+/g, '');
+        Object.keys(values).forEach(k => {
+          if (h === k.replace(/\s+/g, '')) cols[k] = c;
+        });
+      });
+    }
+  }
+  if (headerRow < 0) { sheet.appendRow(fallbackRow); return; }
+
+  const key = norm_(pid);
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    if (norm_(rows[i][cols.pid]) !== key) continue;
+    Object.keys(values).forEach(k => {
+      if (cols[k] == null || values[k] === '' || values[k] == null) return;
+      const cell = sheet.getRange(i + 1, cols[k] + 1);
+      const current = rows[i][cols[k]];
+      if (k === '특이사항') {
+        cell.setValue(current ? current + ' | ' + values[k] : values[k]);
+      } else if (!current) {
+        cell.setValue(values[k]);
+      }
+    });
+    return;
+  }
+  sheet.appendRow(fallbackRow);
+}
+
+function hhmm_(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'HH:mm');
+}
+
+function dateOnly_(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
 function folder_() {
