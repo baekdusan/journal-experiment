@@ -200,8 +200,9 @@ flutterfire configure --project=addie-tutor --platforms=web
 파일럿(2026-09-27)에서 튜터 호출(gemini-3.5-flash, global)이 429로 두 번 연속 실패했다. 공유 용량이 순간적으로 차거나 프로젝트 분당 할당량을 넘으면 난다. 대응:
 
 - **앱이 자동 재시도한다** (`LlmRetryPolicy`, 최대 4회, 1s→2s→4s 백오프). 스트리밍은 첫 청크가 오기 전에만 재시도한다. 시도 횟수와 사유는 내보내기 `llmCalls[].attempts / retryErrors`에 남으므로 재시도가 잦았던 세션을 사후에 가려낼 수 있다.
+- **재시도를 다 써도 실패하면 그 호출 한 번만 `AiModels.fallback`(gemini-2.5-flash, us-central1)으로 대체**한다. 튜터·커리큘럼 생성 모두, 양 조건 동일. 통제 변인이 그 턴에 바뀌므로 `llmCalls[].fallbackFromModel`과 `summary.llmCalls.fallbacks`로 반드시 식별한다. 0이 아닌 세션은 분석에서 따로 다룬다.
 - 그래도 실패하면 참가자 화면에 "응답 생성 중 오류" 가 뜬다. 같은 문장을 다시 보내면 된다(입력이 사라지지 않는다).
-- 할당량 확인: GCP 콘솔 → IAM 및 관리자 → 할당량 → 필터 `aiplatform.googleapis.com` + `gemini-3.5-flash`. "Generate content requests per minute per project per base model" 값이 낮으면 상향을 요청한다. 두 PC 동시 진행 + 처치군은 턴당 3~4회 호출이므로 분당 30 이상은 있어야 여유가 있다.
+- 할당량: 콘솔 확인 결과 gemini-3.5-flash(global)는 프로젝트 한도가 없는 **동적 공유 할당량**이라 상향 요청으로 풀 수 없다. 돈으로 보장하려면 Provisioned Throughput(주 단위 약정)뿐이며 며칠 실험에는 과하다.
 
 ## 현장 운영 방식 A: 노트북에서 LAN 서빙 (권장, 배포 없음)
 

@@ -44,15 +44,21 @@ Future<({GenerateContentResponse response, LlmCallRecord call})> recordedGenerat
   required String agent,
   required String prompt,
   String? systemInstruction,
+  /// 재시도 끝까지 일시 오류면 이 모델로 한 번 더 시도한다 (없으면 그대로 실패).
+  ({GenerativeModel model, ModelSpec spec})? fallback,
 }) async {
   final startedAt = DateTime.now();
   final retryErrors = <String>[];
+  var activeModel = model;
+  var activeSpec = spec;
+  String? fallbackFrom;
   for (var attempt = 1; ; attempt++) {
     try {
-      final response = await model.generateContent([Content.text(prompt)]);
+      final response =
+          await activeModel.generateContent([Content.text(prompt)]);
       final call = buildCallRecord(
         agent: agent,
-        spec: spec,
+        spec: activeSpec,
         prompt: prompt,
         systemInstruction: systemInstruction,
         startedAt: startedAt,
@@ -63,19 +69,29 @@ Future<({GenerateContentResponse response, LlmCallRecord call})> recordedGenerat
         responseText: response.text,
         attempts: attempt,
         retryErrors: retryErrors,
+        fallbackFromModel: fallbackFrom,
       );
       return (response: response, call: call);
     } catch (e) {
-      if (attempt < LlmRetryPolicy.maxAttempts && LlmRetryPolicy.isRetryable(e)) {
+      final retryable = LlmRetryPolicy.isRetryable(e);
+      if (retryable && attempt < LlmRetryPolicy.maxAttempts) {
         retryErrors.add(e.toString());
         await Future.delayed(LlmRetryPolicy.delayFor(attempt));
+        continue;
+      }
+      // 재시도 소진: 대체 모델이 있고 아직 안 썼으면 마지막으로 한 번 더.
+      if (retryable && fallback != null && fallbackFrom == null) {
+        retryErrors.add(e.toString());
+        fallbackFrom = activeSpec.model;
+        activeModel = fallback.model;
+        activeSpec = fallback.spec;
         continue;
       }
       throw LlmCallException(
         e,
         buildCallRecord(
           agent: agent,
-          spec: spec,
+          spec: activeSpec,
           prompt: prompt,
           systemInstruction: systemInstruction,
           startedAt: startedAt,
@@ -83,6 +99,7 @@ Future<({GenerateContentResponse response, LlmCallRecord call})> recordedGenerat
           error: e.toString(),
           attempts: attempt,
           retryErrors: retryErrors,
+          fallbackFromModel: fallbackFrom,
         ),
       );
     }
@@ -119,6 +136,7 @@ LlmCallRecord buildCallRecord({
   List<String> sources = const [],
   int attempts = 1,
   List<String> retryErrors = const [],
+  String? fallbackFromModel,
 }) {
   return LlmCallRecord(
     agent: agent,
@@ -146,6 +164,7 @@ LlmCallRecord buildCallRecord({
     sources: sources,
     attempts: attempts,
     retryErrors: List.unmodifiable(retryErrors),
+    fallbackFromModel: fallbackFromModel,
   );
 }
 

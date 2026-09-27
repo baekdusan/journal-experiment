@@ -29,6 +29,13 @@ class AiModels {
   static const ModelSpec tutor = ModelSpec('gemini-3.5-flash', 'global');
 
   /// 교수설계(Syllabus) 생성용. 강한 추론 모델을 global에서 사용.
-  /// global이 불안정하면 ModelSpec('gemini-2.5-flash', 'us-central1')로 폴백.
   static const ModelSpec designer = ModelSpec('gemini-3.5-flash', 'global');
+
+  /// 3.5-flash(global)가 429 "Resource exhausted"를 재시도 끝까지 돌려줄 때
+  /// **그 호출 한 번만** 대신 쓰는 모델. tutor·designer 공용, 양 조건 동일.
+  ///
+  /// global 엔드포인트는 동적 공유 할당량이라 프로젝트 한도를 올려서 막을 수
+  /// 없다(2026-09-27 파일럿). 참가자에게 오류를 보이는 것보다 낫지만 통제 변인이
+  /// 그 턴에 바뀌므로, 내보내기 `llmCalls[].fallbackFromModel`로 사후 식별한다.
+  static const ModelSpec fallback = ModelSpec('gemini-2.5-flash', 'us-central1');
 }

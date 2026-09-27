@@ -206,6 +206,11 @@ class SessionExportService {
       'llmCalls': {
         'count': telemetry.llmCalls.length,
         'errors': telemetry.llmCalls.where((c) => c.error != null).length,
+        'retried': telemetry.llmCalls.where((c) => c.attempts > 1).length,
+        // 대체 모델로 응답한 호출 수. 0이 아니면 그 턴은 통제 변인이 달랐다.
+        'fallbacks': telemetry.llmCalls
+            .where((c) => c.fallbackFromModel != null)
+            .length,
         'byAgent': byAgent,
         'tokens': {
           'prompt': promptTokens,
