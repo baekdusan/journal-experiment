@@ -206,6 +206,8 @@ class SessionExportService {
       'llmCalls': {
         'count': telemetry.llmCalls.length,
         'errors': telemetry.llmCalls.where((c) => c.error != null).length,
+        // 재시도 끝에 성공한 호출 수 (모델은 바뀌지 않음)
+        'retried': telemetry.llmCalls.where((c) => c.attempts > 1).length,
         'byAgent': byAgent,
         'tokens': {
           'prompt': promptTokens,
