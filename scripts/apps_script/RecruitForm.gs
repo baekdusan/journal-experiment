@@ -10,6 +10,9 @@
  *   응답은 이 시트에 "설문지 응답" 탭으로 자동 연결되고, 제출 트리거도 함께 걸린다.
  *
  * 동작:
+ *   - 신청이 들어오면 배정표에서 "세션 = 슬롯 순번"인 행 중 이름이 빈 첫 좌석에 이름을 적고,
+ *     그 행의 참여자 번호를 확정 메일에 넣는다. (슬롯 1 = 세션 1+SESSION_OFFSET, 시간순)
+ *     → 참가자는 받은 번호와 이름으로 실험 사이트에서 바로 시작할 수 있다.
  *   - 응답이 들어올 때마다 슬롯별 인원을 세서 CAPACITY명이 찬 슬롯을 선택지에서 뺀다.
  *   - 대기자 선택지(WAITLIST)는 절대 빼지 않는다.
  *   - 신청자에게 확정(또는 대기 등록) 메일을 보낸다.
@@ -35,6 +38,10 @@ const FORM_DESCRIPTION = [
 ].join('\n');
 
 const SLOT_QUESTION_TITLE = '희망 시간';
+
+// 배정표 세션 번호 = 슬롯 순번 + SESSION_OFFSET.
+// 세션 1은 2026-09-27 파일럿(P001·P002)이 썼으므로 첫 슬롯은 세션 2부터.
+const SESSION_OFFSET = 1;
 const CAPACITY = 2;
 const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
 
@@ -86,7 +93,7 @@ function buildSlots_() {
 }
 
 const LOCATION_LINE = '장소: 서울대학교 39동 336호 산업/인간공학 실험실';
-const CONTACT_LINE = '문의: ___';
+const CONTACT_LINE = '문의: ___'; // 비워 두면(___) 메일에서 이 줄은 빠진다
 
 const PROP_FORM_ID = 'RECRUIT_FORM_ID';
 
@@ -169,10 +176,23 @@ function onSubmit(e) {
     .filter(v => v === WAITLIST || (counts[v] || 0) < CAPACITY);
   if (remaining.length !== item.getChoices().length) item.setChoiceValues(remaining);
 
-  // 2. 확정 메일 (이메일 수집이 켜져 있을 때만).
+  // 2. 배정표에 이름 채우기 → 참가자 번호 받기.
+  const isWaitlist = chosen === WAITLIST;
+  let pid = null;
+  if (chosen && !isWaitlist) {
+    let name = '';
+    let contact = '';
+    response.getItemResponses().forEach(ir => {
+      const t = ir.getItem().getTitle();
+      if (t === '이름') name = String(ir.getResponse()).trim();
+      if (t.indexOf('연락처') === 0) contact = String(ir.getResponse()).trim();
+    });
+    pid = assignSeat_(chosen, name, contact);
+  }
+
+  // 3. 확정 메일 (이메일 수집이 켜져 있을 때만).
   const email = response && response.getRespondentEmail();
   if (!email || !chosen) return;
-  const isWaitlist = chosen === WAITLIST;
   const subject = isWaitlist
     ? '[AI 튜터 학습 실험] 대기자 등록 안내'
     : `[AI 튜터 학습 실험] 참여 확정: ${chosen}`;
@@ -184,6 +204,7 @@ function onSubmit(e) {
     : [
         `참여가 확정되었습니다.`,
         '',
+        pid ? `참가자 번호: ${pid}  (실험 당일 이 번호와 이름을 입력합니다)` : '',
         `일시: ${chosen}`,
         LOCATION_LINE,
         '소요 시간: 약 1시간 10분 (컴퓨터 준비되어 있음, 준비물 없음)',
@@ -192,8 +213,44 @@ function onSubmit(e) {
         '시작 시각에 맞춰 도착해 주세요. 10분 이상 늦으면 참여가 어려울 수 있습니다.',
         '참여가 어려워지면 미리 알려 주시면 다른 분께 기회가 갑니다.',
         '', CONTACT_LINE,
-      ].join('\n');
+      ].filter(line => line !== null && !/___/.test(line)).join('\n');
   MailApp.sendEmail(email, subject, body);
+}
+
+/**
+ * 배정표에서 슬롯 순번(세션)에 해당하는 행 중 이름이 빈 첫 좌석에 이름을 적는다.
+ * 비고 열이 비어 있으면 연락처를 적는다. 참여자 번호를 돌려준다 (자리가 없으면 null).
+ */
+function assignSeat_(slotLabel, name, contact) {
+  const idx = buildSlots_().indexOf(slotLabel);
+  const session = idx < 0 ? 0 : idx + 1 + SESSION_OFFSET;
+  if (session <= 0 || !name) return null;
+  const sheet = SpreadsheetApp.getActive().getSheetByName('배정표');
+  if (!sheet) return null;
+  const rows = sheet.getDataRange().getValues();
+  let h = -1;
+  const col = {};
+  for (let r = 0; r < Math.min(rows.length, 20) && h < 0; r++) {
+    rows[r].forEach((cell, c) => {
+      const t = String(cell || '').replace(/\s+/g, '');
+      if (t === '세션') col.session = c;
+      if (t === '참여자번호' || t === '참가자번호') col.pid = c;
+      if (t === '이름') col.name = c;
+      if (t === '비고') col.note = c;
+    });
+    if (col.session != null && col.pid != null && col.name != null) h = r;
+  }
+  if (h < 0) return null;
+  for (let i = h + 1; i < rows.length; i++) {
+    if (Number(rows[i][col.session]) !== session) continue;
+    if (String(rows[i][col.name] || '').trim()) continue;
+    sheet.getRange(i + 1, col.name + 1).setValue(name);
+    if (col.note != null && contact && !rows[i][col.note]) {
+      sheet.getRange(i + 1, col.note + 1).setValue(`${slotLabel} · ${contact}`);
+    }
+    return String(rows[i][col.pid]);
+  }
+  return null;
 }
 
 /** 슬롯별 응답 수. 대기자 선택은 세지 않는다. */
