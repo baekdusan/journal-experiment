@@ -75,4 +75,8 @@ class ExperimentConfig {
   /// pubspec 버전과 같은 값을 빌드 시 넣는다. 미지정이면 unknown.
   static const String buildVersion =
       String.fromEnvironment('BUILD_VERSION', defaultValue: 'unknown');
+
+  /// App Check용 reCAPTCHA v3 사이트 키. 배포 빌드에만 넣는다 (main.dart 참고).
+  static const String recaptchaSiteKey =
+      String.fromEnvironment('RECAPTCHA_SITE_KEY', defaultValue: '');
 }

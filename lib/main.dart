@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'config/experiment_config.dart';
 import 'firebase_options.dart';
 import 'screens/start_screen.dart';
 
@@ -11,7 +13,28 @@ import 'screens/start_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await _activateAppCheck();
   runApp(const ProviderScope(child: MyApp()));
+}
+
+/// App Check: 이 앱(등록 도메인)에서 나온 요청만 Vertex AI가 받도록 한다.
+///
+/// 빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서
+/// Gemini를 호출해 결제 계정을 소모하는 것을 막는 장치다.
+/// 사이트 키는 빌드 시 `--dart-define=RECAPTCHA_SITE_KEY=...`로 넣는다.
+/// 키가 없으면(로컬 개발) 활성화하지 않는다 — 콘솔에서 "적용"을 켠 뒤에는
+/// 키 없는 빌드의 Gemini 호출이 403으로 실패하므로 배포 빌드에는 반드시 넣는다.
+Future<void> _activateAppCheck() async {
+  final siteKey = ExperimentConfig.recaptchaSiteKey;
+  if (siteKey.isEmpty) return;
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerWeb: ReCaptchaV3Provider(siteKey),
+    );
+  } catch (e) {
+    // 활성화 실패는 앱을 막지 않는다. 적용이 켜져 있으면 호출 단계에서 드러난다.
+    debugPrint('[AppCheck] activate failed: $e');
+  }
 }
 
 /// 앱의 루트 위젯으로, Material 3 기반의 라이트/다크 테마를 정의한다.

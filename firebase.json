@@ -1,1 +1,40 @@
-{"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"addie-tutor","configurations":{"web":"1:631755669437:web:bb9b010936ddb609d71cd4"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "addie-tutor",
+          "configurations": {
+            "web": "1:631755669437:web:bb9b010936ddb609d71cd4"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "site": "addie-tutor",
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -300,6 +300,10 @@ final model = FirebaseAI.vertexAI(location: AiModels.extractor.location).generat
 > - `gemini-3.5-flash` → `global` 전용 (us-central1에서 404)
 > - `gemini-2.0-flash`(retired), `gemini-3-flash-preview` → 사용 불가 (404)
 >
+> **App Check**: 배포 빌드는 `--dart-define=RECAPTCHA_SITE_KEY=…`로 reCAPTCHA v3를 켠다 (`main.dart` `_activateAppCheck`).
+> 키가 없으면 App Check 없이 뜨고, 콘솔에서 Vertex AI에 "적용"이 켜져 있으면 그 빌드의 Gemini 호출은 403이다.
+> 배포·해제 절차는 README "배포" 절 참고. 사이트: https://addie-tutor.web.app
+>
 > `tutor`는 처치군·대조군이 공유하는 통제 변인이므로 이 값 하나로 양 조건이 함께 바뀐다.
 > Firebase AI Logic이 Vertex AI를 호출하려면 서비스 에이전트
 > `service-<PROJECT_NUMBER>@gcp-sa-firebasevertexai.iam.gserviceaccount.com`에

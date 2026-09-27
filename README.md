@@ -183,9 +183,36 @@ flutterfire configure --project=addie-tutor --platforms=web
 ```
 
 `lib/firebase_options.dart`에 API 키가 포함되므로 저장소에 커밋하지 않는다.
+`addie-tutor`가 목록에 없다고 나오면 Firebase CLI 계정이 다른 것이다. `firebase login:list`로 확인하고 `firebase login:use <소유 계정>`으로 바꾼다.
 이 파일은 gitignore라 오래된 로컬 사본이 다른 프로젝트를 가리킬 수 있다. **빌드 전에 `projectId`가 `addie-tutor`인지 확인**하고, 아니면 위 명령으로 재생성한다.
 
 > 별도 백엔드 서버는 없다. 이전의 RAG 서버(`scripts/rag/`)와 Wikidata 프록시는 grounding 전환으로 **폐기**되었다 (스크립트는 참고용으로만 남아 있음).
+
+---
+
+## 배포 (Firebase Hosting + App Check)
+
+실험 사이트: **https://addie-tutor.web.app** (`firebase.json`의 hosting → `build/web`).
+
+빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서 Gemini를 호출하는 것을 **App Check(reCAPTCHA v3)** 로 막는다. 등록 도메인에서 실행 중인 이 앱이 발급받은 토큰이 없는 요청은 Vertex AI가 거부한다. 참가자에게는 아무것도 보이지 않는다.
+
+```bash
+# 1. 사이트 키: Firebase 콘솔 → App Check → 앱 → reCAPTCHA v3 등록 → 사이트 키 복사
+# 2. 빌드 (사이트 키 없이 빌드하면 App Check가 꺼진 채 나간다)
+flutter build web \
+  --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD) \
+  --dart-define=BUILD_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}') \
+  --dart-define=RECAPTCHA_SITE_KEY=<사이트 키>
+# 3. 배포
+firebase deploy --only hosting
+# 4. 배포 후 Firebase 콘솔 → App Check → API 탭 → Vertex AI(Firebase AI Logic) → "적용"
+#    (적용을 먼저 켜면 키 없는 옛 빌드가 403으로 죽는다. 순서 주의)
+# 5. 실험이 끝나면 사이트를 내린다 (주소를 아는 사람의 사용을 막는 가장 단순한 방법)
+firebase hosting:disable
+```
+
+- 로컬 개발(`flutter run`)은 사이트 키 없이 App Check가 꺼진 채 돈다. 콘솔에서 "적용"을 켠 뒤에는 로컬에서 Gemini 호출이 403이 나므로, 그때는 App Check 디버그 토큰을 등록하거나 잠시 "모니터링"으로 내린다.
+- App Check는 링크로 사이트에 들어와 채팅하는 것까지는 막지 못한다. 주소를 퍼뜨리지 않고, 실험 후 사이트를 내린다.
 
 ---
 
