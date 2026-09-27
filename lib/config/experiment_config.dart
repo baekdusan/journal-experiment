@@ -76,7 +76,7 @@ class ExperimentConfig {
   static const String buildVersion =
       String.fromEnvironment('BUILD_VERSION', defaultValue: 'unknown');
 
-  /// App Check용 reCAPTCHA v3 사이트 키. 배포 빌드에만 넣는다 (main.dart 참고).
+  /// App Check용 reCAPTCHA Enterprise 사이트 키. 배포 빌드에만 넣는다 (main.dart 참고).
   static const String recaptchaSiteKey =
       String.fromEnvironment('RECAPTCHA_SITE_KEY', defaultValue: '');
 }

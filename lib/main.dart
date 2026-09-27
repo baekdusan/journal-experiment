@@ -29,7 +29,7 @@ Future<void> _activateAppCheck() async {
   if (siteKey.isEmpty) return;
   try {
     await FirebaseAppCheck.instance.activate(
-      providerWeb: ReCaptchaV3Provider(siteKey),
+      providerWeb: ReCaptchaEnterpriseProvider(siteKey),
     );
   } catch (e) {
     // 활성화 실패는 앱을 막지 않는다. 적용이 켜져 있으면 호출 단계에서 드러난다.

@@ -194,10 +194,10 @@ flutterfire configure --project=addie-tutor --platforms=web
 
 실험 사이트: **https://addie-tutor.web.app** (`firebase.json`의 hosting → `build/web`).
 
-빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서 Gemini를 호출하는 것을 **App Check(reCAPTCHA v3)** 로 막는다. 등록 도메인에서 실행 중인 이 앱이 발급받은 토큰이 없는 요청은 Vertex AI가 거부한다. 참가자에게는 아무것도 보이지 않는다.
+빌드된 JS에 Firebase API 키가 그대로 들어가므로, 키를 뽑아 다른 곳에서 Gemini를 호출하는 것을 **App Check(reCAPTCHA Enterprise)** 로 막는다. 등록 도메인에서 실행 중인 이 앱이 발급받은 토큰이 없는 요청은 Vertex AI가 거부한다. 참가자에게는 아무것도 보이지 않는다.
 
 ```bash
-# 1. 사이트 키: Firebase 콘솔 → App Check → 앱 → reCAPTCHA v3 등록 → 사이트 키 복사
+# 1. 사이트 키: Firebase 콘솔 → App Check → 앱 → reCAPTCHA Enterprise 등록 (GCP에서 웹사이트용 점수 기반 키 생성, 도메인 addie-tutor.web.app) → 사이트 키 복사
 # 2. 빌드 (사이트 키 없이 빌드하면 App Check가 꺼진 채 나간다)
 flutter build web \
   --dart-define=BUILD_COMMIT=$(git rev-parse --short HEAD) \
