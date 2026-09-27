@@ -30,6 +30,17 @@ const ASSIGNMENT_SHEET = '배정표';
 const LOG_SHEET = '세션기록';
 const BACKUP_FOLDER = '실험 세션 백업';
 
+/**
+ * 권한 승인용. 편집기에서 이 함수를 선택해 ▶ 실행하면 시트·Drive 권한 승인 창이 뜬다.
+ * 승인 후 "배포 관리 → 새 버전"으로 다시 배포해야 웹 앱에 반영된다.
+ * (2026-09-27: Drive 권한 없이 배포돼 내보내기 백업이 전부 실패했다.)
+ */
+function authorize() {
+  SpreadsheetApp.getActive().getName();
+  const f = folder_();
+  Logger.log('권한 OK. 백업 폴더: %s', f.getUrl());
+}
+
 function doGet(e) {
   const p = (e && e.parameter) || {};
   try {
