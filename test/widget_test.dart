@@ -88,4 +88,31 @@ void main() {
       contains('experiment.start'),
     );
   });
+
+  testWidgets('채팅 화면은 뒤로 가기로 빠져나갈 수 없다', (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: StartScreen()),
+      ),
+    );
+    await tester.enterText(find.byKey(const ValueKey('participant-name')), 'P09');
+    await tester.tap(find.text('그룹 A'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('start-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatScreen), findsOneWidget);
+
+    // 브라우저 뒤로 가기는 didPopRoute로 들어온다.
+    final handled = await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(handled, isTrue);
+    expect(find.byType(ChatScreen), findsOneWidget);
+    expect(
+      container.read(telemetryProvider).uiEvents.map((e) => e.type),
+      contains('back_blocked'),
+    );
+  });
 }

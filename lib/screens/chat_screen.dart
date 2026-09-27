@@ -15,39 +15,57 @@ class ChatScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final activeSession = ref.watch(activeSessionProvider);
-    final canExport = activeSession != null && activeSession.messages.isNotEmpty;
+    final canExport =
+        activeSession != null && activeSession.messages.isNotEmpty;
 
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 56,
-        // 참가자에게 조건 정보(ADDIE)가 새지 않도록 중립 명칭을 쓴다.
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.auto_awesome,
-              size: 20,
-              color: Color(0xFF4E86FF),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'AI Tutor',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontSize: 17,
-                fontWeight: FontWeight.w500,
-                color: theme.colorScheme.onSurfaceVariant,
-                letterSpacing: 0,
+    // 브라우저 뒤로 가기를 막는다. 세션이 메모리에만 있어 페이지를 떠나면
+    // 대화가 통째로 사라진다 (2026-09-27 현장에서 실제 발생). Flutter 웹은
+    // 뒤로 가기를 Navigator pop으로 받으므로 canPop=false면 페이지에 머문다.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        ref.read(telemetryProvider.notifier).recordUi('back_blocked');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('뒤로 가기는 사용할 수 없어요. 대화를 계속 진행해 주세요.'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          toolbarHeight: 56,
+          // 참가자에게 조건 정보(ADDIE)가 새지 않도록 중립 명칭을 쓴다.
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.auto_awesome,
+                size: 20,
+                color: Color(0xFF4E86FF),
               ),
-            ),
+              const SizedBox(width: 8),
+              Text(
+                'AI Tutor',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 0,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            _ExportButton(enabled: canExport),
+            _NewSessionButton(hasMessages: canExport),
+            const SizedBox(width: 4),
           ],
         ),
-        actions: [
-          _ExportButton(enabled: canExport),
-          _NewSessionButton(hasMessages: canExport),
-          const SizedBox(width: 4),
-        ],
+        body: const ChatView(),
       ),
-      body: const ChatView(),
     );
   }
 }
@@ -69,7 +87,9 @@ class _ExportButton extends ConsumerWidget {
       icon: Icon(
         Icons.file_download_outlined,
         size: 22,
-        color: enabled ? cs.onSurface : cs.onSurfaceVariant.withValues(alpha: 0.5),
+        color: enabled
+            ? cs.onSurface
+            : cs.onSurfaceVariant.withValues(alpha: 0.5),
       ),
     );
   }
@@ -132,7 +152,9 @@ class _NewSessionButton extends ConsumerWidget {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('새 대화를 시작할까요?'),
-          content: const Text('현재 대화와 학습 상태가 모두 초기화됩니다. 저장이 필요하면 먼저 대화 기록을 내보내세요.'),
+          content: const Text(
+            '현재 대화와 학습 상태가 모두 초기화됩니다. 저장이 필요하면 먼저 대화 기록을 내보내세요.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
