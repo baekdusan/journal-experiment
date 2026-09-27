@@ -32,4 +32,18 @@ void main() {
     expect(d3, inInclusiveRange(4000, 4300));
     expect(LlmRetryPolicy.maxAttempts, 4);
   });
+
+  test('searchEntryPoint HTML의 칩에서 검색어를 복원한다', () {
+    const html = '<div class="container"><div class="carousel">'
+        '<a class="chip" href="https://www.google.com/search?q=a">블록체인 합의 알고리즘</a>'
+        '<a class="chip" href="https://www.google.com/search?q=b">PoW &amp; PoS 비교</a>'
+        '<a class="chip" href="https://www.google.com/search?q=a">블록체인 합의 알고리즘</a>'
+        '</div></div>';
+    expect(
+      extractQueriesFromEntryPoint(html),
+      ['블록체인 합의 알고리즘', 'PoW & PoS 비교'],
+    );
+    expect(extractQueriesFromEntryPoint(null), isEmpty);
+    expect(extractQueriesFromEntryPoint(''), isEmpty);
+  });
 }

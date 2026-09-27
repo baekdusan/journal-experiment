@@ -151,6 +151,11 @@ LlmCallRecord buildCallRecord({
 
 /// 후보의 grounding 메타데이터에서 검색어·출처 문자열을 뽑는다.
 /// (GroundingMetadata 타입은 패키지 밖으로 export되지 않아 Candidate를 받는다.)
+///
+/// firebase_ai(3.6~3.15 확인)는 `webSearchQueries`를 `List<String>` 패턴으로
+/// 매칭하는데 JSON은 `List<dynamic>`이라 항상 빈 리스트가 된다. 파일럿에서
+/// 출처 10건에 검색어 0건으로 드러났다. 대신 `searchEntryPoint.renderedContent`
+/// (구글 검색 제안 HTML)의 칩 텍스트에서 검색어를 복원한다.
 ({List<String> queries, List<String> sources}) extractGrounding(
     Candidate? candidate) {
   final metadata = candidate?.groundingMetadata;
@@ -160,5 +165,29 @@ LlmCallRecord buildCallRecord({
       if (grounding.web != null)
         '${grounding.web!.title ?? '(제목 없음)'} (${grounding.web!.uri ?? '-'})',
   ];
-  return (queries: metadata.webSearchQueries, sources: sources);
+  var queries = metadata.webSearchQueries;
+  if (queries.isEmpty) {
+    queries = extractQueriesFromEntryPoint(
+        metadata.searchEntryPoint?.renderedContent);
+  }
+  return (queries: queries, sources: sources);
+}
+
+/// 검색 제안 HTML(`<a class="chip" href="…">검색어</a>`)에서 검색어를 뽑는다.
+List<String> extractQueriesFromEntryPoint(String? renderedContent) {
+  if (renderedContent == null || renderedContent.isEmpty) return const [];
+  final re = RegExp(r'<a[^>]*class="chip"[^>]*>(.*?)</a>', dotAll: true);
+  final out = <String>[];
+  for (final m in re.allMatches(renderedContent)) {
+    final text = m.group(1)!
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .trim();
+    if (text.isNotEmpty && !out.contains(text)) out.add(text);
+  }
+  return out;
 }

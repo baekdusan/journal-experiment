@@ -139,11 +139,13 @@ class SessionExportService {
     // grounding 집계 (source별)
     final groundingBySource = <String, int>{};
     var searchQueryCount = 0;
+    var sourceCount = 0;
     for (final e in session.stateChanges) {
       if (e.type != StateChangeType.groundingUsed) continue;
       final source = e.changes['source']?.toString() ?? 'unknown';
       groundingBySource[source] = (groundingBySource[source] ?? 0) + 1;
       searchQueryCount += (e.changes['searchQueries'] as List?)?.length ?? 0;
+      sourceCount += (e.changes['sources'] as List?)?.length ?? 0;
     }
 
     // 턴 지연·읽기·작성 시간 평균 (값이 있는 턴만)
@@ -181,6 +183,10 @@ class SessionExportService {
         'student': countRole(MessageRole.user),
         'tutor': countRole(MessageRole.model),
         'system': countRole(MessageRole.system),
+        // 오류로 대체된 말풍선(model 역할이지만 튜터 발화가 아님)
+        'errorBubbles': session.messages
+            .where((m) => m.meta['kind'] == 'error')
+            .length,
       },
       'chars': {
         'student': charsRole(MessageRole.user),
@@ -192,6 +198,8 @@ class SessionExportService {
         'sinceResponseMs': mean('sinceResponseMs'),
         'timeToFirstChunkMs': mean('timeToFirstChunkMs'),
         'latencyMs': mean('latencyMs'),
+        'blockedMs': mean('blockedMs'),
+        'postProcessingMs': mean('postProcessingMs'),
         'userChars': mean('userChars'),
         'responseChars': mean('responseChars'),
       },
@@ -208,8 +216,10 @@ class SessionExportService {
       },
       'errors': telemetry.flowEvents.where((e) => e.name.endsWith('.error')).length,
       'grounding': {
+        // 검색 발동 횟수(조절변수 '자료 검색 빈도'의 1차 지표)
         'events': groundingBySource,
         'searchQueryCount': searchQueryCount,
+        'sourceCount': sourceCount,
       },
       'course': {
         'stepsTotal': finalState.totalSteps,

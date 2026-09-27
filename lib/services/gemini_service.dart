@@ -102,18 +102,10 @@ class GeminiService {
             lastCandidate = chunk.candidates.first;
           }
 
-          final metadata = chunk.candidates.isNotEmpty
-              ? chunk.candidates.first.groundingMetadata
-              : null;
-          if (metadata != null) {
-            searchQueries.addAll(metadata.webSearchQueries);
-            for (final grounding in metadata.groundingChunks) {
-              final web = grounding.web;
-              if (web != null) {
-                sources.add('${web.title ?? '(제목 없음)'} (${web.uri ?? '-'})');
-              }
-            }
-          }
+          final grounding = extractGrounding(
+              chunk.candidates.isNotEmpty ? chunk.candidates.first : null);
+          searchQueries.addAll(grounding.queries);
+          sources.addAll(grounding.sources);
           if (chunk.text != null) {
             buffer.write(chunk.text!);
             yield chunk.text!;

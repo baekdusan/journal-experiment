@@ -278,6 +278,10 @@ class TurnRecord {
   final DateTime? responseStartedAt;
   final DateTime? firstChunkAt;
   final DateTime? responseCompletedAt;
+
+  /// 입력창이 다시 열린 시각. 응답 완료 후 단계 판정·설계 등 후처리까지
+  /// 끝난 시점이라 학습자가 실제로 기다린 시간의 끝이다.
+  final DateTime? inputUnlockedAt;
   final int? responseChars;
   final List<String> llmCallIds;
   final String? error;
@@ -295,6 +299,7 @@ class TurnRecord {
     this.responseStartedAt,
     this.firstChunkAt,
     this.responseCompletedAt,
+    this.inputUnlockedAt,
     this.responseChars,
     this.llmCallIds = const [],
     this.error,
@@ -308,6 +313,7 @@ class TurnRecord {
     DateTime? responseStartedAt,
     DateTime? firstChunkAt,
     DateTime? responseCompletedAt,
+    DateTime? inputUnlockedAt,
     int? responseChars,
     List<String>? llmCallIds,
     String? error,
@@ -325,6 +331,7 @@ class TurnRecord {
         responseStartedAt: responseStartedAt ?? this.responseStartedAt,
         firstChunkAt: firstChunkAt ?? this.firstChunkAt,
         responseCompletedAt: responseCompletedAt ?? this.responseCompletedAt,
+        inputUnlockedAt: inputUnlockedAt ?? this.inputUnlockedAt,
         responseChars: responseChars ?? this.responseChars,
         llmCallIds: llmCallIds ?? this.llmCallIds,
         error: error ?? this.error,
@@ -359,6 +366,11 @@ class TurnRecord {
         'timeToFirstChunkMs': _ms(sentAt, firstChunkAt),
         // 전송 → 응답 완료: 턴 전체 지연
         'latencyMs': _ms(sentAt, responseCompletedAt),
+        'inputUnlockedAt': inputUnlockedAt?.toIso8601String(),
+        // 전송 → 입력창 재개방: 학습자가 실제로 기다린 시간 (후처리 포함)
+        'blockedMs': _ms(sentAt, inputUnlockedAt),
+        // 응답 완료 → 입력창 재개방: 단계 판정 등 보이지 않는 후처리 시간
+        'postProcessingMs': _ms(responseCompletedAt, inputUnlockedAt),
         'responseChars': responseChars,
         'llmCallIds': llmCallIds,
         'error': error,

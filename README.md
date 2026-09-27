@@ -141,7 +141,10 @@ flowchart TB
 }
 ```
 
-- `turns[].readingMs` = 직전 응답 완료 → 첫 글자 입력, `composeMs` = 첫 글자 → 전송, `latencyMs` = 전송 → 응답 완료.
+- `turns[].readingMs` = 직전 응답 완료 → 첫 글자 입력, `composeMs` = 첫 글자 → 전송, `latencyMs` = 전송 → 응답 완료, `blockedMs` = 전송 → 입력창 재개방(처치군은 단계 판정 등 후처리 3~5초가 더 붙는다. 조건 간 대기 시간 비교는 이 값으로), `postProcessingMs` = 그 차이.
+- `compose.editCount`는 키 입력 수가 아니라 텍스트 변경 이벤트 수다. 한글 IME는 음절 하나에 여러 번 발생하므로 절대값보다 상대 비교에 쓴다.
+- `readingMs`가 유난히 길면 `summary.attention.tabHiddenMs`(탭 이탈 시간)를 빼고 본다.
+- grounding 검색어: firebase_ai SDK 버그로 `webSearchQueries`가 항상 비어 온다. 앱이 `searchEntryPoint`의 검색 제안 HTML에서 검색어를 복원해 `searchQueries`에 넣는다. 검색 빈도의 1차 지표는 `summary.grounding.events`(발동 횟수)와 `sourceCount`다.
 - `llmCalls`는 처치군에서 한 턴에 2~4건(intent·tutor·stepProgress, 설계 시 designer.research/structure), 대조군은 1건(freeform). 토큰·지연 비교는 이 배열로 한다.
 - `flowEvents`는 예전에 브라우저 콘솔(`[Flow]`)에만 찍히던 판정 로그다. Analyst의 게이트 전 원 추출값(`rawExtracted`), StepProgress의 confidence, Feedback의 판정이 모두 남는다.
 - 대조군은 상태 변화가 없어 `stateChanges`가 grounding만으로 구성된다. 조건 구분의 근거는 `experiment.condition`뿐이다.

@@ -228,6 +228,12 @@ class ChatController extends _$ChatController {
     if (_activeCount <= 0) {
       _activeCount = 0;
       ref.read(isProcessingProvider.notifier).set(false);
+      // 입력창이 다시 열리는 순간 = 학습자가 기다린 시간의 끝.
+      final now = DateTime.now();
+      ref.read(telemetryProvider.notifier).updateTurn(
+            _turnCounter,
+            (t) => t.copyWith(inputUnlockedAt: now),
+          );
     }
   }
 
