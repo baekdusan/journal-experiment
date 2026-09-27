@@ -1,6 +1,38 @@
+import 'dart:math';
 import 'package:firebase_ai/firebase_ai.dart';
 import '../config/ai_models.dart';
 import '../models/telemetry.dart';
+
+/// 일시 오류 재시도 정책.
+///
+/// Vertex AI는 공유 용량이 순간적으로 차면 429 "Resource exhausted"를 돌려준다
+/// (파일럿에서 실제로 발생). 참가자에게 오류가 보이면 조건과 무관한 교란이 되므로
+/// 짧은 백오프로 몇 번 더 시도한다. 시도 횟수와 사유는 [LlmCallRecord]에 남는다.
+class LlmRetryPolicy {
+  LlmRetryPolicy._();
+
+  static const int maxAttempts = 4;
+
+  /// 429·503·504·UNAVAILABLE·overloaded 계열만 재시도한다. 400/403/안전 차단은 즉시 실패.
+  static bool isRetryable(Object error) {
+    final m = error.toString().toLowerCase();
+    return m.contains('resource exhausted') ||
+        m.contains('429') ||
+        m.contains('503') ||
+        m.contains('504') ||
+        m.contains('unavailable') ||
+        m.contains('overloaded') ||
+        m.contains('deadline exceeded') ||
+        m.contains('try again');
+  }
+
+  /// attempt는 1부터. 1→1s, 2→2s, 3→4s (+0~300ms 지터).
+  static Duration delayFor(int attempt, {Random? random}) {
+    final base = 1000 * (1 << (attempt - 1));
+    final jitter = (random ?? Random()).nextInt(300);
+    return Duration(milliseconds: base + jitter);
+  }
+}
 
 /// 비스트리밍 호출을 시간·토큰·원문까지 기록하며 실행한다.
 ///
@@ -14,33 +46,46 @@ Future<({GenerateContentResponse response, LlmCallRecord call})> recordedGenerat
   String? systemInstruction,
 }) async {
   final startedAt = DateTime.now();
-  try {
-    final response = await model.generateContent([Content.text(prompt)]);
-    final call = buildCallRecord(
-      agent: agent,
-      spec: spec,
-      prompt: prompt,
-      systemInstruction: systemInstruction,
-      startedAt: startedAt,
-      completedAt: DateTime.now(),
-      usage: response.usageMetadata,
-      candidate: response.candidates.isNotEmpty ? response.candidates.first : null,
-      responseText: response.text,
-    );
-    return (response: response, call: call);
-  } catch (e) {
-    throw LlmCallException(
-      e,
-      buildCallRecord(
+  final retryErrors = <String>[];
+  for (var attempt = 1; ; attempt++) {
+    try {
+      final response = await model.generateContent([Content.text(prompt)]);
+      final call = buildCallRecord(
         agent: agent,
         spec: spec,
         prompt: prompt,
         systemInstruction: systemInstruction,
         startedAt: startedAt,
         completedAt: DateTime.now(),
-        error: e.toString(),
-      ),
-    );
+        usage: response.usageMetadata,
+        candidate:
+            response.candidates.isNotEmpty ? response.candidates.first : null,
+        responseText: response.text,
+        attempts: attempt,
+        retryErrors: retryErrors,
+      );
+      return (response: response, call: call);
+    } catch (e) {
+      if (attempt < LlmRetryPolicy.maxAttempts && LlmRetryPolicy.isRetryable(e)) {
+        retryErrors.add(e.toString());
+        await Future.delayed(LlmRetryPolicy.delayFor(attempt));
+        continue;
+      }
+      throw LlmCallException(
+        e,
+        buildCallRecord(
+          agent: agent,
+          spec: spec,
+          prompt: prompt,
+          systemInstruction: systemInstruction,
+          startedAt: startedAt,
+          completedAt: DateTime.now(),
+          error: e.toString(),
+          attempts: attempt,
+          retryErrors: retryErrors,
+        ),
+      );
+    }
   }
 }
 
@@ -72,6 +117,8 @@ LlmCallRecord buildCallRecord({
   String? error,
   List<String> searchQueries = const [],
   List<String> sources = const [],
+  int attempts = 1,
+  List<String> retryErrors = const [],
 }) {
   return LlmCallRecord(
     agent: agent,
@@ -97,6 +144,8 @@ LlmCallRecord buildCallRecord({
     responseText: responseText,
     searchQueries: searchQueries,
     sources: sources,
+    attempts: attempts,
+    retryErrors: List.unmodifiable(retryErrors),
   );
 }
 

@@ -260,6 +260,7 @@ isReady                = isLearnerProfileFilled && isDesignFilled
 규칙:
 - 각 서비스의 결과 클래스는 `call: LlmCallRecord?`와 `fallback: bool`을 함께 돌려준다. 새 에이전트를 추가하면 같은 형태로 맞추고 `ChatController`에서 `_recordCall`한다.
 - 실패는 `LlmCallException`으로 던져 실패한 호출 기록도 남긴다 (`_recordFailure`가 받는다).
+- 429/503 등 일시 오류는 `LlmRetryPolicy`가 자동 재시도한다 (`recordedGenerate`, 스트리밍은 첫 청크 전까지). 재시도 정책을 바꿀 때는 `llm_call_recorder.dart` 한 곳만 고친다.
 - `_log()`는 콘솔 전용이 아니다. `telemetryProvider.recordFlow`로도 간다. 콘솔 출력은 디버그 빌드에서만.
 - 메시지의 `meta`는 화면에 쓰지 않는다. 내보내기 전용이다.
 - `dart:html`은 `lib/platform/web_env.dart`를 통해서만 쓴다 (조건부 import). 직접 import하면 VM 테스트가 로드조차 되지 않는다.

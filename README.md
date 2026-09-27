@@ -192,6 +192,14 @@ flutterfire configure --project=addie-tutor --platforms=web
 
 ---
 
+## 오류 대응: Vertex AI 429 "Resource exhausted"
+
+파일럿(2026-09-27)에서 튜터 호출(gemini-3.5-flash, global)이 429로 두 번 연속 실패했다. 공유 용량이 순간적으로 차거나 프로젝트 분당 할당량을 넘으면 난다. 대응:
+
+- **앱이 자동 재시도한다** (`LlmRetryPolicy`, 최대 4회, 1s→2s→4s 백오프). 스트리밍은 첫 청크가 오기 전에만 재시도한다. 시도 횟수와 사유는 내보내기 `llmCalls[].attempts / retryErrors`에 남으므로 재시도가 잦았던 세션을 사후에 가려낼 수 있다.
+- 그래도 실패하면 참가자 화면에 "응답 생성 중 오류" 가 뜬다. 같은 문장을 다시 보내면 된다(입력이 사라지지 않는다).
+- 할당량 확인: GCP 콘솔 → IAM 및 관리자 → 할당량 → 필터 `aiplatform.googleapis.com` + `gemini-3.5-flash`. "Generate content requests per minute per project per base model" 값이 낮으면 상향을 요청한다. 두 PC 동시 진행 + 처치군은 턴당 3~4회 호출이므로 분당 30 이상은 있어야 여유가 있다.
+
 ## 현장 운영 방식 A: 노트북에서 LAN 서빙 (권장, 배포 없음)
 
 사이트를 공개하지 않고 실험자 노트북이 같은 Wi-Fi에 `build/web`을 서빙한다. API 키 남용 걱정과 App Check 설정이 필요 없고, 실험이 끝나면 Ctrl-C로 끝난다.

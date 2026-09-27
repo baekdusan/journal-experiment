@@ -68,6 +68,12 @@ class LlmCallRecord {
   final List<String> searchQueries;
   final List<String> sources;
 
+  /// 실제 시도 횟수(1이면 재시도 없음). 429/503 등 일시 오류는 자동 재시도한다.
+  final int attempts;
+
+  /// 재시도로 넘어간 시도들의 오류 문자열(시도 순).
+  final List<String> retryErrors;
+
   LlmCallRecord({
     String? id,
     this.turn,
@@ -94,6 +100,8 @@ class LlmCallRecord {
     this.responseText,
     this.searchQueries = const [],
     this.sources = const [],
+    this.attempts = 1,
+    this.retryErrors = const [],
   }) : id = id ?? const Uuid().v4();
 
   int get durationMs => completedAt.difference(startedAt).inMilliseconds;
@@ -132,6 +140,8 @@ class LlmCallRecord {
         responseText: responseText,
         searchQueries: searchQueries ?? this.searchQueries,
         sources: sources ?? this.sources,
+        attempts: attempts,
+        retryErrors: retryErrors,
       );
 
   Map<String, dynamic> toJson() => {
@@ -167,6 +177,8 @@ class LlmCallRecord {
         'responseChars': responseText?.length,
         'searchQueries': searchQueries,
         'sources': sources,
+        'attempts': attempts,
+        'retryErrors': retryErrors,
       };
 }
 

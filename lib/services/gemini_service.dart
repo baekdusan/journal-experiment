@@ -52,66 +52,86 @@ class GeminiService {
           systemInstruction != null ? Content.system(systemInstruction) : null,
     );
 
-    final chat = model.startChat(
-      history: history.map((m) {
-        return Content(m.role == MessageRole.user ? 'user' : 'model', [
-          TextPart(m.content),
-        ]);
-      }).toList(),
-    );
-
-    final response = chat.sendMessageStream(Content.text(userText));
+    final historyContent = history
+        .map((m) => Content(m.role == MessageRole.user ? 'user' : 'model', [
+              TextPart(m.content),
+            ]))
+        .toList();
 
     // grounding 메타데이터는 보통 마지막 청크에 실려 오므로 스트림을 돌며 수집한다.
     final searchQueries = <String>{};
     final sources = <String>{};
+    final retryErrors = <String>[];
 
-    try {
-      await for (final chunk in response) {
-        chunkCount += 1;
-        firstChunkAt ??= DateTime.now();
-        // usageMetadata·finishReason은 마지막 청크에 실려 오므로 계속 덮어쓴다.
-        if (chunk.usageMetadata != null) usage = chunk.usageMetadata;
-        if (chunk.candidates.isNotEmpty) lastCandidate = chunk.candidates.first;
+    LlmCallRecord record({String? error, required int attempt}) =>
+        buildCallRecord(
+          agent: agent,
+          spec: AiModels.tutor,
+          prompt: userText,
+          systemInstruction: systemInstruction,
+          startedAt: startedAt,
+          firstChunkAt: firstChunkAt,
+          completedAt: DateTime.now(),
+          chunkCount: chunkCount,
+          streaming: true,
+          historyLength: history.length,
+          historyChars: historyChars,
+          usage: usage,
+          candidate: lastCandidate,
+          responseText: buffer.toString(),
+          error: error,
+          searchQueries: searchQueries.toList(),
+          sources: sources.toList(),
+          attempts: attempt,
+          retryErrors: retryErrors,
+        );
 
-        final metadata = chunk.candidates.isNotEmpty
-            ? chunk.candidates.first.groundingMetadata
-            : null;
-        if (metadata != null) {
-          searchQueries.addAll(metadata.webSearchQueries);
-          for (final grounding in metadata.groundingChunks) {
-            final web = grounding.web;
-            if (web != null) {
-              sources.add('${web.title ?? '(제목 없음)'} (${web.uri ?? '-'})');
+    // 429(Resource exhausted) 등 일시 오류는 첫 청크가 오기 전이면 재시도한다.
+    // 청크를 이미 내보낸 뒤에는 화면에 일부가 보였으므로 재시도하지 않는다.
+    var attempt = 1;
+    while (true) {
+      final chat = model.startChat(history: historyContent);
+      final response = chat.sendMessageStream(Content.text(userText));
+      try {
+        await for (final chunk in response) {
+          chunkCount += 1;
+          firstChunkAt ??= DateTime.now();
+          // usageMetadata·finishReason은 마지막 청크에 실려 오므로 계속 덮어쓴다.
+          if (chunk.usageMetadata != null) usage = chunk.usageMetadata;
+          if (chunk.candidates.isNotEmpty) {
+            lastCandidate = chunk.candidates.first;
+          }
+
+          final metadata = chunk.candidates.isNotEmpty
+              ? chunk.candidates.first.groundingMetadata
+              : null;
+          if (metadata != null) {
+            searchQueries.addAll(metadata.webSearchQueries);
+            for (final grounding in metadata.groundingChunks) {
+              final web = grounding.web;
+              if (web != null) {
+                sources.add('${web.title ?? '(제목 없음)'} (${web.uri ?? '-'})');
+              }
             }
           }
+          if (chunk.text != null) {
+            buffer.write(chunk.text!);
+            yield chunk.text!;
+          }
         }
-        if (chunk.text != null) {
-          buffer.write(chunk.text!);
-          yield chunk.text!;
+        break;
+      } catch (e) {
+        if (chunkCount == 0 &&
+            attempt < LlmRetryPolicy.maxAttempts &&
+            LlmRetryPolicy.isRetryable(e)) {
+          retryErrors.add(e.toString());
+          await Future.delayed(LlmRetryPolicy.delayFor(attempt));
+          attempt += 1;
+          continue;
         }
+        onCallComplete?.call(record(error: e.toString(), attempt: attempt));
+        rethrow;
       }
-    } catch (e) {
-      onCallComplete?.call(buildCallRecord(
-        agent: agent,
-        spec: AiModels.tutor,
-        prompt: userText,
-        systemInstruction: systemInstruction,
-        startedAt: startedAt,
-        firstChunkAt: firstChunkAt,
-        completedAt: DateTime.now(),
-        chunkCount: chunkCount,
-        streaming: true,
-        historyLength: history.length,
-        historyChars: historyChars,
-        usage: usage,
-        candidate: lastCandidate,
-        responseText: buffer.toString(),
-        error: e.toString(),
-        searchQueries: searchQueries.toList(),
-        sources: sources.toList(),
-      ));
-      rethrow;
     }
 
     if (onGrounding != null &&
@@ -119,23 +139,6 @@ class GeminiService {
       onGrounding(searchQueries.toList(), sources.toList());
     }
 
-    onCallComplete?.call(buildCallRecord(
-      agent: agent,
-      spec: AiModels.tutor,
-      prompt: userText,
-      systemInstruction: systemInstruction,
-      startedAt: startedAt,
-      firstChunkAt: firstChunkAt,
-      completedAt: DateTime.now(),
-      chunkCount: chunkCount,
-      streaming: true,
-      historyLength: history.length,
-      historyChars: historyChars,
-      usage: usage,
-      candidate: lastCandidate,
-      responseText: buffer.toString(),
-      searchQueries: searchQueries.toList(),
-      sources: sources.toList(),
-    ));
+    onCallComplete?.call(record(attempt: attempt));
   }
 }
