@@ -42,6 +42,9 @@ const SLOT_QUESTION_TITLE = '희망 시간';
 // 배정표 세션 번호 = 슬롯 순번 + SESSION_OFFSET.
 // 세션 1은 2026-09-27 파일럿(P001·P002)이 썼으므로 첫 슬롯은 세션 2부터.
 const SESSION_OFFSET = 1;
+
+// 신청 직후 확정 메일 자동 발송. false면 메일 없이 배정표 기입만 한다(연락은 직접).
+const SEND_CONFIRMATION_EMAIL = true;
 const CAPACITY = 2;
 const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
 
@@ -112,7 +115,9 @@ function createRecruitForm() {
   form.setDescription(FORM_DESCRIPTION)
     .setCollectEmail(true)
     .setLimitOneResponsePerUser(false)
-    .setConfirmationMessage('신청이 접수되었습니다. 입력하신 이메일로 안내 메일을 보내 드렸습니다.');
+    .setConfirmationMessage(SEND_CONFIRMATION_EMAIL
+      ? '신청이 접수되었습니다. 참가자 번호와 안내가 담긴 확인 메일을 보내 드렸습니다. 메일이 보이지 않으면 스팸함을 확인해 주세요. 실험 전날 입력하신 연락처로 다시 안내드립니다.'
+      : '신청이 접수되었습니다. 실험 전날까지 입력하신 연락처로 참가자 번호와 안내를 보내 드립니다.');
 
   form.addTextItem().setTitle('이름').setRequired(true);
   form.addTextItem().setTitle('연락처 (전화번호 또는 카카오톡 아이디)').setRequired(true);
@@ -191,6 +196,7 @@ function onSubmit(e) {
   }
 
   // 3. 확정 메일 (이메일 수집이 켜져 있을 때만).
+  if (!SEND_CONFIRMATION_EMAIL) return;
   const email = response && response.getRespondentEmail();
   if (!email || !chosen) return;
   const subject = isWaitlist
