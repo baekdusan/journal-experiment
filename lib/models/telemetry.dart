@@ -27,6 +27,13 @@ class ParticipantInfo {
         'startedAt': startedAt.toIso8601String(),
         'station': station,
       };
+
+  factory ParticipantInfo.fromJson(Map<String, dynamic> j) => ParticipantInfo(
+        name: j['name'] as String,
+        displayName: j['displayName'] as String?,
+        startedAt: DateTime.parse(j['startedAt'] as String),
+        station: j['station'] as String?,
+      );
 }
 
 /// LLM 호출 1건의 기록. 처치군은 한 턴에 2~4회, 대조군은 1회 발생한다.
@@ -186,6 +193,41 @@ class LlmCallRecord {
         'attempts': attempts,
         'retryErrors': retryErrors,
       };
+
+  factory LlmCallRecord.fromJson(Map<String, dynamic> j) {
+    final usage = (j['usage'] as Map?)?.cast<String, dynamic>() ?? const {};
+    DateTime? dt(String k) =>
+        j[k] == null ? null : DateTime.parse(j[k] as String);
+    return LlmCallRecord(
+      id: j['id'] as String?,
+      turn: j['turn'] as int?,
+      agent: j['agent'] as String,
+      model: j['model'] as String,
+      location: j['location'] as String,
+      streaming: j['streaming'] as bool? ?? false,
+      startedAt: DateTime.parse(j['startedAt'] as String),
+      firstChunkAt: dt('firstChunkAt'),
+      completedAt: DateTime.parse(j['completedAt'] as String),
+      chunkCount: j['chunkCount'] as int? ?? 0,
+      promptTokenCount: usage['promptTokenCount'] as int?,
+      candidatesTokenCount: usage['candidatesTokenCount'] as int?,
+      totalTokenCount: usage['totalTokenCount'] as int?,
+      thoughtsTokenCount: usage['thoughtsTokenCount'] as int?,
+      toolUsePromptTokenCount: usage['toolUsePromptTokenCount'] as int?,
+      finishReason: j['finishReason'] as String?,
+      finishMessage: j['finishMessage'] as String?,
+      error: j['error'] as String?,
+      systemInstruction: j['systemInstruction'] as String?,
+      prompt: j['prompt'] as String? ?? '',
+      historyLength: j['historyLength'] as int? ?? 0,
+      historyChars: j['historyChars'] as int? ?? 0,
+      responseText: j['responseText'] as String?,
+      searchQueries: (j['searchQueries'] as List?)?.cast<String>() ?? const [],
+      sources: (j['sources'] as List?)?.cast<String>() ?? const [],
+      attempts: j['attempts'] as int? ?? 1,
+      retryErrors: (j['retryErrors'] as List?)?.cast<String>() ?? const [],
+    );
+  }
 }
 
 /// 오케스트레이션 흐름 이벤트. 예전에는 `debugPrint`로만 찍히던 라우팅·판정 로그다.
@@ -212,6 +254,14 @@ class FlowEvent {
         'name': name,
         'data': data,
       };
+
+  factory FlowEvent.fromJson(Map<String, dynamic> j) => FlowEvent(
+        id: j['id'] as String?,
+        timestamp: DateTime.parse(j['timestamp'] as String),
+        turn: j['turn'] as int?,
+        name: j['name'] as String,
+        data: (j['data'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
 }
 
 /// 학습자 행동·브라우저 이벤트 (탭 이탈, 창 크기, 스크롤, 버튼 클릭 등).
@@ -235,6 +285,13 @@ class UiEvent {
         'type': type,
         'data': data,
       };
+
+  factory UiEvent.fromJson(Map<String, dynamic> j) => UiEvent(
+        id: j['id'] as String?,
+        timestamp: DateTime.parse(j['timestamp'] as String),
+        type: j['type'] as String,
+        data: (j['data'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
 }
 
 /// 입력창에서 넘어오는 작성 행동 메타. 메시지 전송 시 함께 전달된다.
@@ -264,6 +321,15 @@ class ComposeMeta {
         'editCount': editCount,
         'maxLength': maxLength,
       };
+
+  factory ComposeMeta.fromJson(Map<String, dynamic> j) => ComposeMeta(
+        focusedAt:
+            j['focusedAt'] == null ? null : DateTime.parse(j['focusedAt'] as String),
+        firstKeyAt:
+            j['firstKeyAt'] == null ? null : DateTime.parse(j['firstKeyAt'] as String),
+        editCount: j['editCount'] as int? ?? 0,
+        maxLength: j['maxLength'] as int? ?? 0,
+      );
 }
 
 /// 사용자 턴 1개의 요약. 전송 시각부터 응답 완료까지의 흐름을 한 행으로 모은다.
@@ -381,6 +447,32 @@ class TurnRecord {
         'llmCallIds': llmCallIds,
         'error': error,
       };
+
+  /// [toJson]의 파생 필드(readingMs 등)는 무시하고 원 필드만 복원한다.
+  factory TurnRecord.fromJson(Map<String, dynamic> j) {
+    DateTime? dt(String k) =>
+        j[k] == null ? null : DateTime.parse(j[k] as String);
+    return TurnRecord(
+      turn: j['turn'] as int,
+      sentAt: DateTime.parse(j['sentAt'] as String),
+      userText: j['userText'] as String? ?? '',
+      compose: j['compose'] == null
+          ? const ComposeMeta()
+          : ComposeMeta.fromJson((j['compose'] as Map).cast<String, dynamic>()),
+      previousResponseCompletedAt: dt('previousResponseCompletedAt'),
+      route: j['route'] as String?,
+      intent: j['intent'] as String?,
+      stepIndexBefore: j['stepIndexBefore'] as int?,
+      stepIndexAfter: j['stepIndexAfter'] as int?,
+      responseStartedAt: dt('responseStartedAt'),
+      firstChunkAt: dt('firstChunkAt'),
+      responseCompletedAt: dt('responseCompletedAt'),
+      inputUnlockedAt: dt('inputUnlockedAt'),
+      responseChars: j['responseChars'] as int?,
+      llmCallIds: (j['llmCallIds'] as List?)?.cast<String>() ?? const [],
+      error: j['error'] as String?,
+    );
+  }
 }
 
 /// 세션 하나에 누적되는 텔레메트리 전체. 내보내기 시 세션·학습 상태와 합쳐진다.
@@ -421,4 +513,30 @@ class SessionTelemetry {
         uiEvents: uiEvents ?? this.uiEvents,
         exportCount: exportCount ?? this.exportCount,
       );
+
+  Map<String, dynamic> toJson() => {
+        'participant': participant?.toJson(),
+        'environment': environment,
+        'turns': turns.map((t) => t.toJson(participant?.startedAt)).toList(),
+        'llmCalls': llmCalls.map((c) => c.toJson()).toList(),
+        'flowEvents': flowEvents.map((e) => e.toJson()).toList(),
+        'uiEvents': uiEvents.map((e) => e.toJson()).toList(),
+        'exportCount': exportCount,
+      };
+
+  factory SessionTelemetry.fromJson(Map<String, dynamic> j) {
+    List<Map<String, dynamic>> list(String k) =>
+        (j[k] as List? ?? const []).map((e) => (e as Map).cast<String, dynamic>()).toList();
+    return SessionTelemetry(
+      participant: j['participant'] == null
+          ? null
+          : ParticipantInfo.fromJson((j['participant'] as Map).cast<String, dynamic>()),
+      environment: (j['environment'] as Map?)?.cast<String, dynamic>() ?? const {},
+      turns: list('turns').map(TurnRecord.fromJson).toList(),
+      llmCalls: list('llmCalls').map(LlmCallRecord.fromJson).toList(),
+      flowEvents: list('flowEvents').map(FlowEvent.fromJson).toList(),
+      uiEvents: list('uiEvents').map(UiEvent.fromJson).toList(),
+      exportCount: j['exportCount'] as int? ?? 0,
+    );
+  }
 }

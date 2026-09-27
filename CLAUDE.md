@@ -95,7 +95,8 @@ lib/
 │   ├── syllabus_designer_service.dart   # 커리큘럼 생성 (2단계: 검색 조사 → JSON 구조화)
 │   ├── step_progress_service.dart   # 단계 진행 판정
 │   ├── session_export_service.dart  # 세션 JSON 내보내기 (v3.0)
-│   └── participant_registry_service.dart # 시트 조회(번호+이름→조건)·세션기록·Drive 백업
+│   ├── participant_registry_service.dart # 시트 조회(번호+이름→조건)·세션기록·Drive 백업
+│   └── session_persistence_service.dart  # 자동 저장 스냅샷 → 시작 화면 "이어서 진행"
 │
 ├── screens/
 │   ├── start_screen.dart            # 참가자 번호 + 그룹(A/B, 블라인드) + 시작 버튼 (t=0, 전체 초기화)
@@ -265,6 +266,7 @@ isReady                = isLearnerProfileFilled && isDesignFilled
 - `_log()`는 콘솔 전용이 아니다. `telemetryProvider.recordFlow`로도 간다. 콘솔 출력은 디버그 빌드에서만.
 - 메시지의 `meta`는 화면에 쓰지 않는다. 내보내기 전용이다.
 - `dart:html`은 `lib/platform/web_env.dart`를 통해서만 쓴다 (조건부 import). 직접 import하면 VM 테스트가 로드조차 되지 않는다.
+- **세션 유실 방지 3겹**: 채팅 화면 `PopScope(canPop:false)`, beforeunload 경고, 자동 저장(`session_persistence_service.dart`, `ChatController._scheduleSave` → 시작 화면 "이어서 진행" → `restoreSession`). 세션·텔레메트리 모델에 필드를 추가하면 `fromJson`도 같이 맞춘다 (스냅샷 왕복 테스트 `test/session_resume_test.dart`).
 
 ---
 

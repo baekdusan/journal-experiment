@@ -21,6 +21,7 @@ import '../models/telemetry.dart';
 import '../providers/telemetry_provider.dart';
 import '../services/llm_call_recorder.dart';
 import '../services/participant_registry_service.dart';
+import '../services/session_persistence_service.dart';
 
 part 'chat_provider.g.dart';
 
@@ -55,6 +56,11 @@ ConversationalAgentService conversationalAgentService(Ref ref) {
 @Riverpod(keepAlive: true)
 ParticipantRegistryService participantRegistryService(Ref ref) {
   return ParticipantRegistryService();
+}
+
+@Riverpod(keepAlive: true)
+SessionPersistenceService sessionPersistenceService(Ref ref) {
+  return SessionPersistenceService();
 }
 
 @Riverpod(keepAlive: true)
@@ -217,9 +223,82 @@ class ChatController extends _$ChatController {
   /// 백그라운드가 살아있는 동안 isProcessing이 true로 유지된다.
   int _activeCount = 0;
 
+  /// 자동 저장 디바운스. 메시지·기록이 바뀔 때마다 스냅샷을 다시 쓴다.
+  Timer? _saveTimer;
+  bool _exported = false;
+
   @override
   FutureOr<void> build() {
-    // Nothing to initialize
+    // 세션이나 텔레메트리가 바뀌면 자동 저장을 예약한다 (뒤로 가기·새로고침 대비).
+    ref.listen(chatSessionsProvider, (_, __) => _scheduleSave());
+    ref.listen(telemetryProvider, (_, __) => _scheduleSave());
+    ref.onDispose(() => _saveTimer?.cancel());
+  }
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 400), _saveSnapshot);
+  }
+
+  Future<void> _saveSnapshot() async {
+    final sessions = ref.read(chatSessionsProvider);
+    final telemetry = ref.read(telemetryProvider);
+    if (sessions.isEmpty || telemetry.participant == null) return;
+    await ref.read(sessionPersistenceServiceProvider).save(SessionSnapshot(
+          savedAt: DateTime.now(),
+          condition: ExperimentConfig.condition,
+          station: ExperimentConfig.station,
+          turnCounter: _turnCounter,
+          exported: _exported,
+          session: sessions.first,
+          telemetry: telemetry,
+        ));
+  }
+
+  /// 시작 화면의 "이어서 진행". 자동 저장본에서 세션·기록·조건을 되살린다.
+  ///
+  /// 끊길 때 응답 중이던 빈 말풍선은 지우고, 마지막이 학습자 발화면 응답이
+  /// 유실됐다는 안내를 붙인다 (양 조건 동일 문구).
+  Future<void> restoreSession(SessionSnapshot snapshot) async {
+    ExperimentConfig.setCondition(snapshot.condition);
+    if (snapshot.station != null) ExperimentConfig.setStation(snapshot.station);
+
+    var messages = [...snapshot.session.messages];
+    while (messages.isNotEmpty &&
+        messages.last.role == MessageRole.model &&
+        (messages.last.isStreaming || messages.last.content.isEmpty)) {
+      messages.removeLast();
+    }
+    final lostReply =
+        messages.isNotEmpty && messages.last.role == MessageRole.user;
+    if (lostReply) {
+      messages = [
+        ...messages,
+        Message(
+          role: MessageRole.system,
+          content: '연결이 끊겨 마지막 응답이 전달되지 못했어요. 다시 질문해 주세요.',
+          meta: const {'kind': 'restored', 'lostReply': true},
+        ),
+      ];
+    }
+
+    final session = snapshot.session.copyWith(messages: messages);
+    ref.read(streamingMessageProvider.notifier).clear();
+    ref.read(chatSessionsProvider.notifier).addSession(session);
+    ref.read(activeSessionIdProvider.notifier).set(session.id);
+    _turnCounter = snapshot.turnCounter;
+    _exported = false;
+    ref.read(telemetryProvider.notifier).restore(snapshot.telemetry);
+    // 설계 도중 끊겼으면 플래그가 true로 남는다. 다음 발화가 설계를 다시 건다.
+    if (ref.read(learningStateProvider).isDesigning) {
+      await ref.read(learningStateProvider.notifier).setDesigning(false);
+    }
+    _log('session.restored', {
+      'turn': _turnCounter,
+      'messages': messages.length,
+      'lostReply': lostReply,
+      'savedAt': snapshot.savedAt.toIso8601String(),
+    });
   }
 
   /// 처리 작업 진입: 카운터 증가 및 [isProcessingProvider] true로 설정.
@@ -451,12 +530,15 @@ class ChatController extends _$ChatController {
   /// 단일 세션 모드에서 현재 대화와 학습 상태를 모두 초기화한다.
   /// 다음 메시지 전송 시 새 세션이 자동 생성된다.
   void createNewSession() {
+    _saveTimer?.cancel();
     ref.read(chatSessionsProvider.notifier).clear();
     ref.read(activeSessionIdProvider.notifier).set(null);
     ref.read(streamingMessageProvider.notifier).clear();
     _turnCounter = 0;
+    _exported = false;
     ref.read(telemetryProvider.notifier).reset();
     unawaited(ref.read(learningStateProvider.notifier).reset());
+    unawaited(ref.read(sessionPersistenceServiceProvider).clear());
   }
 
   /// 지정된 세션을 JSON 파일로 내보낸다.
@@ -476,6 +558,9 @@ class ChatController extends _$ChatController {
       final telemetryNotifier = ref.read(telemetryProvider.notifier);
       telemetryNotifier.recordUi('export', {'sessionId': sessionId});
       telemetryNotifier.markExported();
+      // 저장한 세션은 복구 대상에서 뺀다 (다음 참가자에게 제안되지 않도록).
+      _exported = true;
+      _scheduleSave();
 
       final jsonBody = await exportService.exportSession(
         session,

@@ -46,6 +46,20 @@ class Telemetry extends _$Telemetry {
     );
   }
 
+  /// 자동 저장본에서 복원한다. 브라우저 이벤트 구독도 다시 건다.
+  void restore(SessionTelemetry saved) {
+    _disposeWindowListeners?.call();
+    state = saved.copyWith(environment: environmentSnapshot());
+    _disposeWindowListeners = listenWindowEvents(
+      (type, data) => recordUi(type, data),
+      warnBeforeUnload: true,
+    );
+    recordUi('session.restored', {
+      'turns': saved.turns.length,
+      'savedParticipant': saved.participant?.name,
+    });
+  }
+
   DateTime? get startedAt => state.participant?.startedAt;
 
   void recordCall(LlmCallRecord call, {int? turn}) {

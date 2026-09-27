@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/experiment_config.dart';
 import '../providers/chat_provider.dart';
+import '../services/session_persistence_service.dart';
 import 'chat_screen.dart';
 
 /// 실험 시작 화면.
@@ -28,6 +29,9 @@ class _StartScreenState extends ConsumerState<StartScreen> {
   bool _checking = false;
   String? _error;
 
+  /// 자동 저장된 진행 중 세션. 있으면 "이어서 진행"을 먼저 제안한다.
+  SessionSnapshot? _resumable;
+
   bool get _useRegistry =>
       ref.read(participantRegistryServiceProvider).isEnabled;
 
@@ -42,6 +46,76 @@ class _StartScreenState extends ConsumerState<StartScreen> {
     _name.addListener(_onChanged);
     final fromUrl = ExperimentConfig.conditionFromUrl;
     if (fromUrl != null) _group = ExperimentConfig.blindLabelFor(fromUrl);
+    _loadResumable();
+  }
+
+  Future<void> _loadResumable() async {
+    final snapshot = await ref.read(sessionPersistenceServiceProvider).load();
+    if (!mounted || snapshot == null || !snapshot.isResumable) return;
+    setState(() => _resumable = snapshot);
+  }
+
+  Future<void> _resume() async {
+    final snapshot = _resumable;
+    if (snapshot == null) return;
+    setState(() => _checking = true);
+    await ref.read(chatControllerProvider.notifier).restoreSession(snapshot);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const ChatScreen()),
+    );
+  }
+
+  Widget _buildResumeCard(ThemeData theme) {
+    final cs = theme.colorScheme;
+    final p = _resumable!.participant;
+    final who = p == null
+        ? '이전 참가자'
+        : '${p.name}${p.displayName != null ? ' ${p.displayName}' : ''}님';
+    final turns = _resumable!.session.messages
+        .where((m) => m.role.name == 'user')
+        .length;
+    return Container(
+      key: const ValueKey('resume-card'),
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        border: Border.all(color: cs.primary.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history, size: 20, color: cs.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$who의 진행 중인 대화가 있어요 ($turns개 질문)',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '같은 분이면 이어서 진행하세요. 다른 분이면 아래에서 새로 시작하면 됩니다.',
+            style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonalIcon(
+            key: const ValueKey('resume-button'),
+            onPressed: _checking ? null : _resume,
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('이어서 진행'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onChanged() => setState(() => _error = null);
@@ -159,6 +233,7 @@ class _StartScreenState extends ConsumerState<StartScreen> {
                     ),
                   ),
                   const SizedBox(height: 32),
+                  if (_resumable != null) _buildResumeCard(theme),
                   TextField(
                     key: const ValueKey('participant-name'),
                     controller: _pid,

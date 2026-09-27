@@ -242,6 +242,54 @@ final class ParticipantRegistryServiceProvider
 String _$participantRegistryServiceHash() =>
     r'1a1a789c9159bf07a3f9d0922651dfc59f2278a9';
 
+@ProviderFor(sessionPersistenceService)
+final sessionPersistenceServiceProvider = SessionPersistenceServiceProvider._();
+
+final class SessionPersistenceServiceProvider
+    extends
+        $FunctionalProvider<
+          SessionPersistenceService,
+          SessionPersistenceService,
+          SessionPersistenceService
+        >
+    with $Provider<SessionPersistenceService> {
+  SessionPersistenceServiceProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'sessionPersistenceServiceProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$sessionPersistenceServiceHash();
+
+  @$internal
+  @override
+  $ProviderElement<SessionPersistenceService> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  SessionPersistenceService create(Ref ref) {
+    return sessionPersistenceService(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(SessionPersistenceService value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<SessionPersistenceService>(value),
+    );
+  }
+}
+
+String _$sessionPersistenceServiceHash() =>
+    r'd96cedf1ebdc5e0311013eb732533c540ea7a4b6';
+
 @ProviderFor(syllabusDesignerService)
 final syllabusDesignerServiceProvider = SyllabusDesignerServiceProvider._();
 
@@ -803,7 +851,7 @@ final class ChatControllerProvider
   ChatController create() => ChatController();
 }
 
-String _$chatControllerHash() => r'ac9519788113f2e8d8b7ed4d266bf95eb48d1981';
+String _$chatControllerHash() => r'f4e5c22afdd655c5f0f0e528cbaaaee8e28dd71d';
 
 /// ============================================================
 /// ChatController: Stateless Micro-Agent 패턴의 오케스트레이터

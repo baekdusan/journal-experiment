@@ -206,6 +206,16 @@ flutterfire configure --project=addie-tutor --platforms=web
 
 ---
 
+## 세션 유실 방지 (뒤로 가기·새로고침)
+
+대화는 브라우저 메모리에만 있다. 파일럿(2026-09-27)에서 참가자가 Alt+←(윈도우 크롬에서 뒤로 가기)를 눌러 세션이 두 번 사라졌다. 세 겹으로 막는다.
+
+1. **뒤로 가기 차단**: 채팅 화면은 `PopScope(canPop: false)`. 눌러도 화면에 머물고 안내만 뜬다 (`uiEvents`에 `back_blocked`).
+2. **이탈 경고**: 새로고침·탭 닫기 시 브라우저 확인창.
+3. **자동 저장 + 이어서 진행**: 메시지·기록이 바뀔 때마다 세션 전체(대화·조건·참가자·텔레메트리)를 브라우저 저장소에 저장한다 (`session_persistence_service.dart`). 페이지가 다시 열리면 시작 화면 위에 "○○님의 진행 중인 대화가 있어요 → 이어서 진행" 카드가 뜬다. 복원 시 응답 중이던 빈 말풍선은 지우고, 마지막이 학습자 발화면 "응답이 전달되지 못했어요, 다시 질문해 주세요" 안내를 붙인다. 저장(⬇)한 세션은 복구 대상에서 빠지므로 다음 참가자에게 제안되지 않는다. 복원 사실은 `uiEvents`의 `session.restored`와 `flowEvents`에 남는다.
+
+참가자 안내 한 줄: "글을 고칠 때 Alt+화살표는 누르지 마세요. 뒤로 가기가 됩니다." (맥 사용자가 윈도우에서 자주 누른다.)
+
 ## 오류 대응: Vertex AI 429 "Resource exhausted"
 
 파일럿(2026-09-27)에서 튜터 호출(gemini-3.5-flash, global)이 429로 두 번 연속 실패했다. 공유 용량이 순간적으로 차거나 프로젝트 분당 할당량을 넘으면 난다. 대응:
@@ -309,7 +319,8 @@ lib/
 │   ├── syllabus_designer_service.dart    # 2단계: 검색 조사 → JSON 구조화
 │   ├── step_progress_service.dart
 │   ├── session_export_service.dart       # v3.0 JSON 내보내기 (참가자·환경·턴·호출·이벤트 전부)
-│   └── participant_registry_service.dart # 실험운영 시트 조회·세션 기록·내보내기 백업 (Apps Script)
+│   ├── participant_registry_service.dart # 실험운영 시트 조회·세션 기록·내보내기 백업 (Apps Script)
+│   └── session_persistence_service.dart  # 자동 저장 스냅샷 (뒤로 가기·새로고침 후 이어서 진행)
 │
 ├── screens/
 │   ├── start_screen.dart          # 참가자 번호 + 그룹(A/B, 블라인드) + 시작 버튼 (t=0)

@@ -79,6 +79,7 @@ class Message {
       'content': content,
       'timestamp': timestamp.toIso8601String(),
       'chars': content.length,
+      'isStreaming': isStreaming,
       'meta': meta,
     };
   }
@@ -93,6 +94,7 @@ class Message {
       role: MessageRole.fromJson(json['role']),
       content: json['content'],
       timestamp: DateTime.parse(json['timestamp']),
+      isStreaming: json['isStreaming'] as bool? ?? false,
       meta: (json['meta'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
   }
