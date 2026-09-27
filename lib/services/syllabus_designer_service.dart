@@ -51,15 +51,6 @@ class SyllabusDesignerService {
       spec: AiModels.designer,
       agent: 'designer.research',
       prompt: researchPrompt,
-      fallback: (
-        model: FirebaseAI.vertexAI(location: AiModels.fallback.location)
-            .generativeModel(
-          model: AiModels.fallback.model,
-          tools: [Tool.googleSearch()],
-          generationConfig: GenerationConfig(temperature: 0.3),
-        ),
-        spec: AiModels.fallback,
-      ),
     );
     final researchResponse = research.response;
     final draft = researchResponse.text;

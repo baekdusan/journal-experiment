@@ -44,17 +44,13 @@ class GeminiService {
 
     // systemInstruction이 턴마다 달라질 수 있으므로 모델을 호출 시점에 생성한다.
     // (GenerativeModel은 클라이언트 측 설정 객체라 생성 비용이 사실상 없다.)
-    GenerativeModel buildModel(ModelSpec spec) =>
-        FirebaseAI.vertexAI(location: spec.location).generativeModel(
-          model: spec.model,
-          tools: [Tool.googleSearch()],
-          systemInstruction: systemInstruction != null
-              ? Content.system(systemInstruction)
-              : null,
-        );
-    var activeSpec = AiModels.tutor;
-    var model = buildModel(activeSpec);
-    String? fallbackFrom;
+    final model =
+        FirebaseAI.vertexAI(location: AiModels.tutor.location).generativeModel(
+      model: AiModels.tutor.model,
+      tools: [Tool.googleSearch()],
+      systemInstruction:
+          systemInstruction != null ? Content.system(systemInstruction) : null,
+    );
 
     final historyContent = history
         .map((m) => Content(m.role == MessageRole.user ? 'user' : 'model', [
@@ -70,7 +66,7 @@ class GeminiService {
     LlmCallRecord record({String? error, required int attempt}) =>
         buildCallRecord(
           agent: agent,
-          spec: activeSpec,
+          spec: AiModels.tutor,
           prompt: userText,
           systemInstruction: systemInstruction,
           startedAt: startedAt,
@@ -88,12 +84,10 @@ class GeminiService {
           sources: sources.toList(),
           attempts: attempt,
           retryErrors: retryErrors,
-          fallbackFromModel: fallbackFrom,
         );
 
     // 429(Resource exhausted) 등 일시 오류는 첫 청크가 오기 전이면 재시도한다.
     // 청크를 이미 내보낸 뒤에는 화면에 일부가 보였으므로 재시도하지 않는다.
-    // 재시도를 다 써도 일시 오류면 대체 모델(AiModels.fallback)로 한 번 더 간다.
     var attempt = 1;
     while (true) {
       final chat = model.startChat(history: historyContent);
@@ -119,18 +113,11 @@ class GeminiService {
         }
         break;
       } catch (e) {
-        final retryable = chunkCount == 0 && LlmRetryPolicy.isRetryable(e);
-        if (retryable && attempt < LlmRetryPolicy.maxAttempts) {
+        if (chunkCount == 0 &&
+            attempt < LlmRetryPolicy.maxAttempts &&
+            LlmRetryPolicy.isRetryable(e)) {
           retryErrors.add(e.toString());
           await Future.delayed(LlmRetryPolicy.delayFor(attempt));
-          attempt += 1;
-          continue;
-        }
-        if (retryable && fallbackFrom == null) {
-          retryErrors.add(e.toString());
-          fallbackFrom = activeSpec.model;
-          activeSpec = AiModels.fallback;
-          model = buildModel(activeSpec);
           attempt += 1;
           continue;
         }

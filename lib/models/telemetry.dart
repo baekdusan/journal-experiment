@@ -74,9 +74,6 @@ class LlmCallRecord {
   /// 재시도로 넘어간 시도들의 오류 문자열(시도 순).
   final List<String> retryErrors;
 
-  /// 원래 모델이 끝까지 실패해 대체 모델로 응답했으면 원래 모델명. 아니면 null.
-  final String? fallbackFromModel;
-
   LlmCallRecord({
     String? id,
     this.turn,
@@ -105,7 +102,6 @@ class LlmCallRecord {
     this.sources = const [],
     this.attempts = 1,
     this.retryErrors = const [],
-    this.fallbackFromModel,
   }) : id = id ?? const Uuid().v4();
 
   int get durationMs => completedAt.difference(startedAt).inMilliseconds;
@@ -146,7 +142,6 @@ class LlmCallRecord {
         sources: sources ?? this.sources,
         attempts: attempts,
         retryErrors: retryErrors,
-        fallbackFromModel: fallbackFromModel,
       );
 
   Map<String, dynamic> toJson() => {
@@ -184,7 +179,6 @@ class LlmCallRecord {
         'sources': sources,
         'attempts': attempts,
         'retryErrors': retryErrors,
-        'fallbackFromModel': fallbackFromModel,
       };
 }
 
