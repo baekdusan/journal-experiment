@@ -31,6 +31,8 @@
  *   - 일정 변경: 시트에 "일정변경" 탭(1행 헤더: 이름 | 변경 시간)을 두고, 변경 시간은 선택지와
  *     똑같은 문구(예: "10/13(화) 09:00~11:00")로 적는다. 정원 계산이 바뀐 시간 기준이 된다.
  *     참가자 번호·조건은 그대로다. 적은 뒤 resetChoices ▶ 실행.
+ *   - 캘린더: "캘린더" 탭에 주별 날짜×시간 표로 신청자·참여 여부를 그린다 (buildCalendar).
+ *     신청이 들어올 때와 매시간(resetChoices) 자동으로 다시 그린다. 손으로 고치지 않는다.
  *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 resetChoices ▶ 실행. 현황은 status ▶ 실행.
  *   - 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니 조정한다.
  */
@@ -260,6 +262,7 @@ function resetChoices() {
   const item = slotItem_();
   const cur = item.getChoices().map(c => c.getValue());
   if (cur.join('|') !== next.join('|')) item.setChoiceValues(next);
+  try { buildCalendar(); } catch (err) { Logger.log('캘린더 갱신 실패: %s', err); }
 }
 
 /** 1회 실행: 매시간 resetChoices를 돌려 지난 슬롯을 자동으로 뺀다. */
@@ -376,6 +379,8 @@ function onSubmit(e) {
     pid = assignSeat_(chosen, String(answers[Q_NAME] || '').trim(), String(answers[Q_CONTACT] || '').trim());
   }
 
+  try { buildCalendar(); } catch (err) { Logger.log('캘린더 갱신 실패: %s', err); }
+
   // 배정표 좌석이 다 찼으면 확정하지 않는다 (IRB 최대 모집 인원 보호).
   const full = chosen && !isWaitlist && !pid;
   if (full) Logger.log('배정표 좌석 없음: %s 신청을 대기로 처리', chosen);
@@ -455,4 +460,138 @@ function assignSeatLocked_(slotLabel, name, contact) {
     return String(rows[i][col.pid]);
   }
   return null;
+}
+
+// ── 캘린더 ───────────────────────────────────────────────────────────
+
+const CALENDAR_SHEET = '캘린더';
+const CAL_COLORS = {
+  none: '#eeeeee',     // 슬롯 없음
+  empty: '#ffffff',    // 빈자리
+  half: '#fff2cc',     // 1/2
+  full: '#d9ead3',     // 2/2
+  pastEmpty: '#f8f8f8' // 지났는데 비어 있음
+};
+
+/** 적격 신청 목록: [{ name, slot }] (일정변경 반영, 대기자 제외). */
+function bookings_() {
+  const moved = reschedules_();
+  const out = [];
+  form_().getResponses().forEach(r => {
+    if (!eligibility_(r).ok) return;
+    let slot = null, name = '';
+    r.getItemResponses().forEach(ir => {
+      const t = ir.getItem().getTitle();
+      if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
+      if (t === Q_NAME) name = String(ir.getResponse()).trim();
+    });
+    if (!slot || slot === WAITLIST) return;
+    out.push({ name: name, slot: moved[name.replace(/\s+/g, '')] || slot });
+  });
+  return out;
+}
+
+/** 배정표: 이름(공백 제거) → { pid, used } */
+function roster_() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('배정표');
+  if (!sheet) return {};
+  const rows = sheet.getDataRange().getDisplayValues();
+  let h = -1;
+  const col = {};
+  for (let r = 0; r < Math.min(rows.length, 20) && h < 0; r++) {
+    rows[r].forEach((cell, c) => {
+      const t = String(cell || '').replace(/\s+/g, '');
+      if (t === '참여자번호' || t === '참가자번호') col.pid = c;
+      if (t === '이름') col.name = c;
+      if (t === '사용여부') col.used = c;
+    });
+    if (col.pid != null && col.name != null) h = r;
+  }
+  const out = {};
+  if (h < 0) return out;
+  for (let i = h + 1; i < rows.length; i++) {
+    const n = String(rows[i][col.name] || '').replace(/\s+/g, '');
+    if (n) out[n] = { pid: rows[i][col.pid], used: col.used != null ? rows[i][col.used] : '' };
+  }
+  return out;
+}
+
+/** "캘린더" 탭을 다시 그린다. 주별로 가로=날짜, 세로=시간. */
+function buildCalendar() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(CALENDAR_SHEET) || ss.insertSheet(CALENDAR_SHEET);
+  const slots = slotObjects_();
+  const byLabel = {};
+  slots.forEach(o => { byLabel[o.label] = o; });
+  const people = {};
+  const roster = roster_();
+  bookings_().forEach(b => {
+    (people[b.slot] = people[b.slot] || []).push(b.name);
+  });
+  const hours = [...new Set(slots.map(o => Number(o.label.slice(-11, -9))))].sort((a, b) => a - b);
+  const now = new Date();
+
+  const values = [];
+  const colors = [];
+  const weights = [];
+  const width = 8;
+  const pushRow = (v, c, w) => {
+    while (v.length < width) v.push('');
+    while (c.length < width) c.push(null);
+    values.push(v); colors.push(c); weights.push(w || Array(width).fill('normal'));
+  };
+
+  let total = 0, filled = 0, done = 0;
+  SCHEDULE.forEach((week, wi) => {
+    const y = week.monday.getFullYear(), m = week.monday.getMonth(), d0 = week.monday.getDate();
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const k = new Date(Date.UTC(y, m, d0 + d));
+      days.push(`${k.getUTCMonth() + 1}/${k.getUTCDate()}(${DAY_NAMES[d]})`);
+    }
+    pushRow([`${wi + 1}주차  ${days[0]} ~ ${days[6]}`], [], Array(width).fill('bold'));
+    pushRow(['시간', ...days], Array(width).fill('#d0e0e3'), Array(width).fill('bold'));
+    hours.forEach(h => {
+      const hh = String(h).padStart(2, '0');
+      const label = `${hh}:00~${String(h + 2).padStart(2, '0')}:00`;
+      const row = [label];
+      const rowColors = ['#f3f3f3'];
+      days.forEach(day => {
+        const key = `${day} ${label}`;
+        const slot = byLabel[key];
+        if (!slot) { row.push(''); rowColors.push(CAL_COLORS.none); return; }
+        total++;
+        const names = people[key] || [];
+        filled += names.length;
+        const past = slot.start <= now;
+        const lines = names.map(n => {
+          const r = roster[n.replace(/\s+/g, '')] || {};
+          const mark = /사용/.test(r.used) ? ' ✓' : /불참/.test(r.used) ? ' ✗' : '';
+          if (mark === ' ✓') done++;
+          return `${r.pid || '?'} ${n}${mark}`;
+        });
+        if (names.length === 0) {
+          row.push(past ? '(지남)' : '빈자리 2');
+          rowColors.push(past ? CAL_COLORS.pastEmpty : CAL_COLORS.empty);
+        } else {
+          if (names.length < CAPACITY && !past) lines.push(`빈자리 ${CAPACITY - names.length}`);
+          row.push(lines.join('\n'));
+          rowColors.push(names.length >= CAPACITY ? CAL_COLORS.full : CAL_COLORS.half);
+        }
+      });
+      pushRow(row, rowColors);
+    });
+    pushRow([], []);
+  });
+
+  const stamp = Utilities.formatDate(now, 'Asia/Seoul', 'M/d HH:mm');
+  pushRow([`갱신 ${stamp}  ·  슬롯 ${total}개, 신청 ${filled}명, 참여 완료 ${done}명  ·  ✓ 참여 완료  ✗ 불참  ·  노랑 1/2, 초록 2/2, 회색 슬롯 없음  ·  자동 생성 탭이니 직접 고치지 마세요`], []);
+
+  sh.clear();
+  const range = sh.getRange(1, 1, values.length, width);
+  range.setValues(values).setBackgrounds(colors).setFontWeights(weights)
+    .setWrap(true).setVerticalAlignment('top').setFontSize(10);
+  sh.setColumnWidth(1, 90);
+  sh.setColumnWidths(2, 7, 150);
+  sh.setFrozenRows(0);
 }
