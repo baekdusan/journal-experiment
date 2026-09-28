@@ -37,9 +37,16 @@ class LearningStateNotifier extends _$LearningStateNotifier {
     final goalChanged =
         normalizedGoal != null && normalizedGoal != current.learnerProfile.goal;
 
-    final updatedProfile = current.learnerProfile.copyWith(
+    // 주제가 바뀌었는데 같은 발화에 새 목표가 없으면 이전 목표를 비운다.
+    // 비우지 않으면 옛 주제의 목표로 새 주제의 설계가 곧바로 시작된다
+    // (2026-09-28 P003: "블록체인"·"스마트 컨트랙트"로 바꿨는데 "해시 함수" 목표가 남아
+    //  해시 함수 과정이 다시 짜임). 비우면 Analyst가 다음 턴에 목표를 받아 설계를 시작한다.
+    // copyWith는 null을 "유지"로 처리하므로 생성자로 직접 만든다.
+    // 수준·말투는 학습자에 대한 정보라 주제가 바뀌어도 유지한다.
+    final keepGoal = !subjectChanged || normalizedGoal != null;
+    final updatedProfile = LearnerProfile(
       subject: normalizedSubject ?? current.learnerProfile.subject,
-      goal: normalizedGoal ?? current.learnerProfile.goal,
+      goal: normalizedGoal ?? (keepGoal ? current.learnerProfile.goal : null),
       level: level ?? current.learnerProfile.level,
       tonePreference: tonePreference ?? current.learnerProfile.tonePreference,
     );
