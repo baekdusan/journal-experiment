@@ -21,9 +21,16 @@
  *   - 스크리닝(기존 폼의 IRB 승인 문항을 읽음): 만 19세 미만, 한국어 불가,
  *     블록체인/암호화폐 전공·실무·자격증, 연구자와 지도·평가 관계면
  *     좌석을 주지 않고 정원에도 세지 않는다. 사유는 참가자에게 알리지 않는다.
- *   - 적격 신청은 배정표에서 "세션 = 슬롯 순번 + SESSION_OFFSET"인 행 중 이름이 빈 첫 좌석에
- *     이름을 적고, 비고에 "일시 · 연락처"를 남긴다. 그 행의 참여자 번호를 확정 메일에 넣는다.
- *   - 슬롯이 CAPACITY명 차면 선택지에서 뺀다. 대기자 선택지는 항상 남긴다.
+ *   - 적격 신청은 **신청 순서대로** 배정표에서 이름이 빈 가장 앞 좌석에 이름을 적고,
+ *     비고에 "일시 · 연락처"를 남긴다. 그 행의 참여자 번호를 확정 메일에 넣는다.
+ *     (2026-09-28 변경: 슬롯↔세션 고정 매핑을 없앴다. 신청 없는 슬롯이 생겨도 배정표에
+ *      구멍이 나지 않고, 배정표의 블록 순서(처치 1·비교 1)를 앞에서부터 그대로 쓴다.)
+ *     배정표 좌석이 다 차면 확정하지 않고 대기자로 안내한다 (IRB 최대 모집 인원 보호).
+ *   - 슬롯이 CAPACITY명 차거나 **시작 시각이 지나면** 선택지에서 뺀다. 대기자 선택지는 항상 남긴다.
+ *     installCleanupTrigger ▶ 1회 실행하면 매시간 지난 슬롯을 자동으로 정리한다.
+ *   - 일정 변경: 시트에 "일정변경" 탭(1행 헤더: 이름 | 변경 시간)을 두고, 변경 시간은 선택지와
+ *     똑같은 문구(예: "10/13(화) 09:00~11:00")로 적는다. 정원 계산이 바뀐 시간 기준이 된다.
+ *     참가자 번호·조건은 그대로다. 적은 뒤 resetChoices ▶ 실행.
  *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 resetChoices ▶ 실행. 현황은 status ▶ 실행.
  *   - 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니 조정한다.
  */
@@ -33,8 +40,6 @@ const EXISTING_FORM_URL = 'https://docs.google.com/forms/d/1ROdwmjejeEYVJrjEL2R5
 
 const SEND_CONFIRMATION_EMAIL = true; // false면 메일 없이 배정표 기입만 (연락은 직접)
 const CAPACITY = 2;
-// 배정표 세션 1은 2026-09-27 파일럿(P001·P002)이 썼으므로 첫 슬롯은 세션 2부터.
-const SESSION_OFFSET = 1;
 
 // 주마다 월요일과 요일별 시작 시각(0=월 … 6=일). 각 슬롯은 2시간 (19 = 19:00~21:00).
 const SCHEDULE = [
@@ -60,6 +65,18 @@ const SCHEDULE = [
       4: [9],                      // 10/9 금 (한글날) 오전만
       5: [9, 11, 13, 15, 17, 19],  // 10/10 토
       6: [9, 11, 13, 15, 17, 19],  // 10/11 일
+    },
+  },
+  {
+    monday: new Date(2026, 9, 12), // 2026-10-12 (월) — 평일은 1주차와 같게
+    hours: {
+      0: [9, 11, 13, 15, 17, 19],  // 10/12 월
+      1: [9, 11, 13, 15, 17, 19],  // 10/13 화
+      2: [9, 11, 18, 20],          // 10/14 수
+      3: [18, 20],                 // 10/15 목
+      4: [9, 11, 13, 15, 17, 19],  // 10/16 금
+      5: [9, 11],                  // 10/17 토 오전만
+      6: [9, 11, 13, 15, 17, 19],  // 10/18 일
     },
   },
 ];
@@ -197,20 +214,38 @@ function form_() {
 
 // ── 슬롯 ─────────────────────────────────────────────────────────────
 
-/** "9/28(월) 09:00~11:00" 형식의 슬롯 목록. 시간순. */
-function buildSlots_() {
+/** 슬롯 목록: { label: "9/28(월) 09:00~11:00", start: 시작 시각(한국 시간 기준) }. 시간순. */
+function slotObjects_() {
   const out = [];
   SCHEDULE.forEach(week => {
+    const y = week.monday.getFullYear(), m = week.monday.getMonth(), d0 = week.monday.getDate();
     for (let d = 0; d < 7; d++) {
-      const date = new Date(week.monday.getTime() + d * 86400000);
       (week.hours[d] || []).forEach(h => {
+        // 스크립트 시간대 설정과 무관하게 한국 시간(UTC+9)으로 계산한다.
+        const start = new Date(Date.UTC(y, m, d0 + d, h - 9));
+        const kst = new Date(Date.UTC(y, m, d0 + d));
         const hh = String(h).padStart(2, '0');
         const end = String(h + 2).padStart(2, '0');
-        out.push(`${date.getMonth() + 1}/${date.getDate()}(${DAY_NAMES[d]}) ${hh}:00~${end}:00`);
+        out.push({
+          label: `${kst.getUTCMonth() + 1}/${kst.getUTCDate()}(${DAY_NAMES[d]}) ${hh}:00~${end}:00`,
+          start: start,
+        });
       });
     }
   });
   return out;
+}
+
+function buildSlots_() {
+  return slotObjects_().map(o => o.label);
+}
+
+/** 아직 시작 전이고 정원이 남은 슬롯. */
+function openSlots_(counts) {
+  const now = new Date();
+  return slotObjects_()
+    .filter(o => o.start > now && (counts[o.label] || 0) < CAPACITY)
+    .map(o => o.label);
 }
 
 function slotItem_() {
@@ -219,24 +254,52 @@ function slotItem_() {
   return it.asMultipleChoiceItem();
 }
 
-/** 선택지를 SCHEDULE 기준으로 다시 채운다 (찬 슬롯은 제외). */
+/** 선택지를 SCHEDULE 기준으로 다시 채운다 (찬 슬롯·지난 슬롯은 제외). */
 function resetChoices() {
-  const counts = countBySlot_();
-  const open = buildSlots_().filter(s => (counts[s] || 0) < CAPACITY);
-  slotItem_().setChoiceValues([...open, WAITLIST]);
+  const next = [...openSlots_(countBySlot_()), WAITLIST];
+  const item = slotItem_();
+  const cur = item.getChoices().map(c => c.getValue());
+  if (cur.join('|') !== next.join('|')) item.setChoiceValues(next);
 }
 
-/** 적격 신청만 슬롯별로 센다. 대기자는 세지 않는다. */
+/** 1회 실행: 매시간 resetChoices를 돌려 지난 슬롯을 자동으로 뺀다. */
+function installCleanupTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'resetChoices')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('resetChoices').timeBased().everyHours(1).create();
+  resetChoices();
+  Logger.log('매시간 정리 트리거 설치 완료. 지금 열린 슬롯: %s개', openSlots_(countBySlot_()).length);
+}
+
+/** "일정변경" 탭: 이름 → 변경 시간. 탭이 없으면 빈 맵. */
+function reschedules_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName('일정변경');
+  if (!sh) return {};
+  const out = {};
+  sh.getDataRange().getDisplayValues().slice(1).forEach(r => {
+    const name = String(r[0] || '').replace(/\s+/g, '');
+    const slot = String(r[1] || '').trim();
+    if (name && slot) out[name] = slot;
+  });
+  return out;
+}
+
+/** 적격 신청만 슬롯별로 센다 (일정변경 반영). 대기자는 세지 않는다. */
 function countBySlot_() {
   const counts = {};
+  const moved = reschedules_();
   form_().getResponses().forEach(r => {
     if (!eligibility_(r).ok) return;
+    let slot = null, name = '';
     r.getItemResponses().forEach(ir => {
-      if (ir.getItem().getTitle() !== SLOT_QUESTION_TITLE) return;
-      const v = String(ir.getResponse());
-      if (v === WAITLIST) return;
-      counts[v] = (counts[v] || 0) + 1;
+      const t = ir.getItem().getTitle();
+      if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
+      if (t === Q_NAME) name = String(ir.getResponse()).replace(/\s+/g, '');
     });
+    if (!slot || slot === WAITLIST) return;
+    const v = moved[name] || slot;
+    counts[v] = (counts[v] || 0) + 1;
   });
   return counts;
 }
@@ -244,8 +307,9 @@ function countBySlot_() {
 /** 현황 (실행 로그). */
 function status() {
   const counts = countBySlot_();
-  buildSlots_().forEach((s, i) =>
-    Logger.log('세션 %s  %s  %s/%s', i + 1 + SESSION_OFFSET, s, counts[s] || 0, CAPACITY));
+  const now = new Date();
+  slotObjects_().forEach(o =>
+    Logger.log('%s  %s/%s%s', o.label, counts[o.label] || 0, CAPACITY, o.start <= now ? '  (지남)' : ''));
 }
 
 // ── 스크리닝 ─────────────────────────────────────────────────────────
@@ -288,12 +352,8 @@ function onSubmit(e) {
   const chosen = answers[SLOT_QUESTION_TITLE] ? String(answers[SLOT_QUESTION_TITLE]) : null;
   const email = response.getRespondentEmail();
 
-  // 1. 찬 슬롯을 선택지에서 뺀다.
-  const item = slotItem_();
-  const counts = countBySlot_();
-  const remaining = item.getChoices().map(c => c.getValue())
-    .filter(v => v === WAITLIST || (counts[v] || 0) < CAPACITY);
-  if (remaining.length !== item.getChoices().length) item.setChoiceValues(remaining);
+  // 1. 찬 슬롯·지난 슬롯을 선택지에서 뺀다.
+  resetChoices();
 
   // 2. 스크리닝. 부적격이면 좌석을 주지 않고 중립 안내만 한다.
   const elig = eligibility_(response);
@@ -316,8 +376,20 @@ function onSubmit(e) {
     pid = assignSeat_(chosen, String(answers[Q_NAME] || '').trim(), String(answers[Q_CONTACT] || '').trim());
   }
 
+  // 배정표 좌석이 다 찼으면 확정하지 않는다 (IRB 최대 모집 인원 보호).
+  const full = chosen && !isWaitlist && !pid;
+  if (full) Logger.log('배정표 좌석 없음: %s 신청을 대기로 처리', chosen);
+
   // 4. 확정 메일.
   if (!SEND_CONFIRMATION_EMAIL || !email || !chosen) return;
+  if (full) {
+    MailApp.sendEmail(email, '[AI 챗봇 학습 경험 연구] 신청 결과 안내', [
+      '신청해 주셔서 감사합니다. 현재 모집 인원이 모두 찼습니다.',
+      '대기자로 기록해 두었다가 빈자리가 생기면 연락드리겠습니다.',
+      '', CONTACT_LINE,
+    ].join('\n'));
+    return;
+  }
   const subject = isWaitlist
     ? '[AI 챗봇 학습 경험 연구] 대기자 등록 안내'
     : `[AI 챗봇 학습 경험 연구] 참여 확정: ${chosen}`;
@@ -338,11 +410,23 @@ function onSubmit(e) {
   MailApp.sendEmail(email, subject, body.filter(l => l !== null).join('\n'));
 }
 
-/** 배정표에서 해당 세션의 빈 좌석에 이름을 적고 참여자 번호를 돌려준다 (없으면 null). */
+/**
+ * 신청 순서대로 배정표에서 이름이 빈 가장 앞 좌석에 이름을 적고 참여자 번호를 돌려준다.
+ * 사용 여부가 '불참'인 행은 건너뛴다. 빈 좌석이 없으면 null.
+ * 동시 제출로 같은 좌석을 두 번 쓰지 않도록 잠금을 건다.
+ */
 function assignSeat_(slotLabel, name, contact) {
-  const idx = buildSlots_().indexOf(slotLabel);
-  if (idx < 0 || !name) return null;
-  const session = idx + 1 + SESSION_OFFSET;
+  if (!name) return null;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    return assignSeatLocked_(slotLabel, name, contact);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function assignSeatLocked_(slotLabel, name, contact) {
   const sheet = SpreadsheetApp.getActive().getSheetByName('배정표');
   if (!sheet) return null;
   const rows = sheet.getDataRange().getValues();
@@ -355,13 +439,15 @@ function assignSeat_(slotLabel, name, contact) {
       if (t === '참여자번호' || t === '참가자번호') col.pid = c;
       if (t === '이름') col.name = c;
       if (t === '비고') col.note = c;
+      if (t === '사용여부') col.used = c;
     });
-    if (col.session != null && col.pid != null && col.name != null) h = r;
+    if (col.pid != null && col.name != null) h = r;
   }
   if (h < 0) return null;
   for (let i = h + 1; i < rows.length; i++) {
-    if (Number(rows[i][col.session]) !== session) continue;
+    if (!String(rows[i][col.pid] || '').trim()) continue;
     if (String(rows[i][col.name] || '').trim()) continue;
+    if (col.used != null && /불참/.test(String(rows[i][col.used] || ''))) continue;
     sheet.getRange(i + 1, col.name + 1).setValue(name);
     if (col.note != null && !rows[i][col.note]) {
       sheet.getRange(i + 1, col.note + 1).setValue(contact ? `${slotLabel} · ${contact}` : slotLabel);
