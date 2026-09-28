@@ -201,8 +201,12 @@ function normalizeCondition_(v) {
   return null;
 }
 
+// 공백과 보이지 않는 문자(소프트 하이픈·제로폭 공백·BOM)를 지우고 대문자로.
+// 2026-09-28: 폼에서 이름 앞에 소프트 하이픈(U+00AD)이 딸려 와 조회가 막힌 사례.
 function norm_(v) {
-  return String(v == null ? '' : v).replace(/\s+/g, '').trim().toUpperCase();
+  return String(v == null ? '' : v)
+    .replace(/[\u00AD\u200B-\u200D\u2060\uFEFF]/g, '')
+    .replace(/\s+/g, '').trim().toUpperCase();
 }
 
 /**

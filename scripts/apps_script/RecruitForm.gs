@@ -32,6 +32,8 @@
  *     똑같은 문구(예: "10/13(화) 09:00~11:00")로 적는다. 정원 계산이 바뀐 시간 기준이 된다.
  *     참가자 번호·조건은 그대로다. 적은 뒤 resetChoices ▶ 실행.
  *   - 캘린더: "캘린더" 탭에 주별 날짜×시간 표로 신청자·참여 여부를 그린다 (buildCalendar).
+ *     폼을 거치지 않고 모신 참가자는 배정표 비고를 슬롯 문구(예: "9/28(월) 09:00~11:00")로
+ *     시작하게 적으면 캘린더에 함께 표시된다.
  *     신청이 들어올 때와 매시간(resetChoices) 자동으로 다시 그린다. 손으로 고치지 않는다.
  *   - 슬롯을 바꾸려면 SCHEDULE을 고치고 resetChoices ▶ 실행. 현황은 status ▶ 실행.
  *   - 같은 슬롯에 거의 동시에 제출되면 정원을 넘길 수 있다. 응답 탭에서 보이니 조정한다.
@@ -129,6 +131,15 @@ const REMOVE_TITLES = [
 ];
 
 const DAY_NAMES = ['월', '화', '수', '목', '금', '토', '일'];
+
+/** 보이지 않는 문자(소프트 하이픈·제로폭 공백·BOM) 제거 + 앞뒤 공백 정리. */
+function clean_(v) {
+  return String(v == null ? '' : v).replace(/[\u00AD\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+}
+/** 이름 비교용 키: clean_ + 공백 제거. */
+function nameKey_(v) {
+  return clean_(v).replace(/\s+/g, '');
+}
 const PROP_FORM_ID = 'RECRUIT_FORM_ID';
 
 // ── 설치 함수 ────────────────────────────────────────────────────────
@@ -281,8 +292,8 @@ function reschedules_() {
   if (!sh) return {};
   const out = {};
   sh.getDataRange().getDisplayValues().slice(1).forEach(r => {
-    const name = String(r[0] || '').replace(/\s+/g, '');
-    const slot = String(r[1] || '').trim();
+    const name = nameKey_(r[0]);
+    const slot = clean_(r[1]);
     if (name && slot) out[name] = slot;
   });
   return out;
@@ -298,7 +309,7 @@ function countBySlot_() {
     r.getItemResponses().forEach(ir => {
       const t = ir.getItem().getTitle();
       if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
-      if (t === Q_NAME) name = String(ir.getResponse()).replace(/\s+/g, '');
+      if (t === Q_NAME) name = nameKey_(ir.getResponse());
     });
     if (!slot || slot === WAITLIST) return;
     const v = moved[name] || slot;
@@ -376,7 +387,7 @@ function onSubmit(e) {
   const isWaitlist = chosen === WAITLIST;
   let pid = null;
   if (chosen && !isWaitlist) {
-    pid = assignSeat_(chosen, String(answers[Q_NAME] || '').trim(), String(answers[Q_CONTACT] || '').trim());
+    pid = assignSeat_(chosen, clean_(answers[Q_NAME]), clean_(answers[Q_CONTACT]));
   }
 
   try { buildCalendar(); } catch (err) { Logger.log('캘린더 갱신 실패: %s', err); }
@@ -483,10 +494,10 @@ function bookings_() {
     r.getItemResponses().forEach(ir => {
       const t = ir.getItem().getTitle();
       if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
-      if (t === Q_NAME) name = String(ir.getResponse()).trim();
+      if (t === Q_NAME) name = clean_(ir.getResponse());
     });
     if (!slot || slot === WAITLIST) return;
-    out.push({ name: name, slot: moved[name.replace(/\s+/g, '')] || slot });
+    out.push({ name: name, slot: moved[nameKey_(name)] || slot });
   });
   return out;
 }
@@ -504,14 +515,21 @@ function roster_() {
       if (t === '참여자번호' || t === '참가자번호') col.pid = c;
       if (t === '이름') col.name = c;
       if (t === '사용여부') col.used = c;
+      if (t === '비고') col.note = c;
     });
     if (col.pid != null && col.name != null) h = r;
   }
   const out = {};
   if (h < 0) return out;
   for (let i = h + 1; i < rows.length; i++) {
-    const n = String(rows[i][col.name] || '').replace(/\s+/g, '');
-    if (n) out[n] = { pid: rows[i][col.pid], used: col.used != null ? rows[i][col.used] : '' };
+    const raw = clean_(rows[i][col.name]);
+    const n = nameKey_(raw);
+    if (n) out[n] = {
+      pid: rows[i][col.pid],
+      name: raw,
+      used: col.used != null ? rows[i][col.used] : '',
+      note: col.note != null ? clean_(rows[i][col.note]) : '',
+    };
   }
   return out;
 }
@@ -525,8 +543,17 @@ function buildCalendar() {
   slots.forEach(o => { byLabel[o.label] = o; });
   const people = {};
   const roster = roster_();
+  const seen = {};
   bookings_().forEach(b => {
     (people[b.slot] = people[b.slot] || []).push(b.name);
+    seen[nameKey_(b.name)] = true;
+  });
+  // 폼을 거치지 않고 모신 참가자: 배정표 비고가 슬롯 문구로 시작하면 그 칸에 표시한다.
+  Object.keys(roster).forEach(k => {
+    if (seen[k]) return;
+    const note = roster[k].note || '';
+    const label = Object.keys(byLabel).find(l => note.indexOf(l) === 0);
+    if (label) (people[label] = people[label] || []).push(roster[k].name);
   });
   const hours = [...new Set(slots.map(o => Number(o.label.slice(-11, -9))))].sort((a, b) => a - b);
   const now = new Date();
@@ -565,7 +592,7 @@ function buildCalendar() {
         filled += names.length;
         const past = slot.start <= now;
         const lines = names.map(n => {
-          const r = roster[n.replace(/\s+/g, '')] || {};
+          const r = roster[nameKey_(n)] || {};
           const mark = /사용/.test(r.used) ? ' ✓' : /불참/.test(r.used) ? ' ✗' : '';
           if (mark === ' ✓') done++;
           return `${r.pid || '?'} ${n}${mark}`;
