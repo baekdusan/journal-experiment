@@ -28,6 +28,9 @@
  *     배정표 좌석이 다 차면 확정하지 않고 대기자로 안내한다 (IRB 최대 모집 인원 보호).
  *   - 슬롯이 CAPACITY명 차거나 **시작 시각이 지나면** 선택지에서 뺀다. 대기자 선택지는 항상 남긴다.
  *     installCleanupTrigger ▶ 1회 실행하면 매시간 지난 슬롯을 자동으로 정리한다.
+ *   - 선택지에 남은 자리를 붙여 보여 준다 (예: "10/6(화) 09:00~11:00 (잔여 1자리)").
+ *     (2026-09-30 추가.) 응답에도 이 표시가 붙은 채 저장되므로, 응답을 읽는 곳은 모두
+ *     slotLabel_로 표시를 떼고 슬롯 문구만 쓴다.
  *   - 일정 변경: 시트에 "일정변경" 탭(1행 헤더: 이름 | 변경 시간)을 두고, 변경 시간은 선택지와
  *     똑같은 문구(예: "10/13(화) 09:00~11:00")로 적는다. 정원 계산이 바뀐 시간 기준이 된다.
  *     참가자 번호·조건은 그대로다. 적은 뒤 resetChoices ▶ 실행.
@@ -56,7 +59,7 @@ const SCHEDULE = [
       3: [18, 20],                 // 10/1 목
       4: [9, 11, 13, 15, 17, 19],  // 10/2 금
       5: [],                       // 10/3 토 (개천절)
-      6: [17, 19],                 // 10/4 일
+      6: [17],                     // 10/4 일 (19시 닫음)
     },
   },
   {
@@ -66,7 +69,7 @@ const SCHEDULE = [
       1: [9, 11, 13, 15, 17, 19],  // 10/6 화
       2: [9, 11, 18, 20],          // 10/7 수
       3: [18, 20],                 // 10/8 목
-      4: [9],                      // 10/9 금 (한글날) 오전만
+      4: [17, 19, 21],             // 10/9 금 (한글날) 저녁만 (09시 닫음)
       5: [9, 11, 13, 15, 17, 19],  // 10/10 토
       6: [9, 11, 13, 15, 17, 19],  // 10/11 일
     },
@@ -115,7 +118,7 @@ const Q_BACKGROUND = '다음 분야의 전공·실무 경력·관련 자격증 �
 const EXCLUDED_ROW = '블록체인 / 암호화폐';
 const Q_RELATION = '현재 연구책임자(백두산)가 직접 지도하거나 성적을 평가하는 수업을 수강 중입니까?';
 const SLOT_QUESTION_TITLE = '희망 시간';
-const SLOT_HELP = '남아 있는 시간만 표시됩니다. 각 슬롯은 2시간이며 실제 소요는 약 1시간 10분입니다. 먼저 신청한 분부터 확정됩니다.';
+const SLOT_HELP = '남아 있는 시간만 표시되며, 괄호 안은 남은 자리 수입니다. 각 슬롯은 2시간이며 실제 소요는 약 1시간 10분입니다. 먼저 신청한 분부터 확정됩니다.';
 const WAITLIST = '대기자로 등록 (빈자리가 나면 연락드립니다)';
 
 // 2026-09-28 스크립트 첫 실행 때 중복으로 추가됐던 문항 + 슬롯 예약으로 대체된 옛 문항. 있으면 지운다.
@@ -139,6 +142,10 @@ function clean_(v) {
 /** 이름 비교용 키: clean_ + 공백 제거. */
 function nameKey_(v) {
   return clean_(v).replace(/\s+/g, '');
+}
+/** 선택지·응답값에서 "(잔여 N자리)" 표시를 떼고 슬롯 문구만 남긴다. */
+function slotLabel_(v) {
+  return clean_(v).replace(/\s*\(잔여 \d+자리\)$/, '');
 }
 const PROP_FORM_ID = 'RECRUIT_FORM_ID';
 
@@ -267,12 +274,17 @@ function slotItem_() {
   return it.asMultipleChoiceItem();
 }
 
-/** 선택지를 SCHEDULE 기준으로 다시 채운다 (찬 슬롯·지난 슬롯은 제외). */
+/** 선택지를 SCHEDULE 기준으로 다시 채운다 (찬 슬롯·지난 슬롯은 제외, 남은 자리 표시). */
 function resetChoices() {
-  const next = [...openSlots_(countBySlot_()), WAITLIST];
+  const counts = countBySlot_();
+  const next = [
+    ...openSlots_(counts).map(l => `${l} (잔여 ${CAPACITY - (counts[l] || 0)}자리)`),
+    WAITLIST,
+  ];
   const item = slotItem_();
   const cur = item.getChoices().map(c => c.getValue());
   if (cur.join('|') !== next.join('|')) item.setChoiceValues(next);
+  if (item.getHelpText() !== SLOT_HELP) item.setHelpText(SLOT_HELP);
   try { buildCalendar(); } catch (err) { Logger.log('캘린더 갱신 실패: %s', err); }
 }
 
@@ -293,7 +305,7 @@ function reschedules_() {
   const out = {};
   sh.getDataRange().getDisplayValues().slice(1).forEach(r => {
     const name = nameKey_(r[0]);
-    const slot = clean_(r[1]);
+    const slot = slotLabel_(r[1]);
     if (name && slot) out[name] = slot;
   });
   return out;
@@ -308,7 +320,7 @@ function countBySlot_() {
     let slot = null, name = '';
     r.getItemResponses().forEach(ir => {
       const t = ir.getItem().getTitle();
-      if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
+      if (t === SLOT_QUESTION_TITLE) slot = slotLabel_(ir.getResponse());
       if (t === Q_NAME) name = nameKey_(ir.getResponse());
     });
     if (!slot || slot === WAITLIST) return;
@@ -363,10 +375,10 @@ function onSubmit(e) {
   if (!response) return;
   const answers = {};
   response.getItemResponses().forEach(ir => { answers[ir.getItem().getTitle()] = ir.getResponse(); });
-  const chosen = answers[SLOT_QUESTION_TITLE] ? String(answers[SLOT_QUESTION_TITLE]) : null;
+  const chosen = answers[SLOT_QUESTION_TITLE] ? slotLabel_(answers[SLOT_QUESTION_TITLE]) : null;
   const email = response.getRespondentEmail();
 
-  // 1. 찬 슬롯·지난 슬롯을 선택지에서 뺀다.
+  // 1. 찬 슬롯·지난 슬롯을 선택지에서 빼고 남은 자리 표시를 갱신한다.
   resetChoices();
 
   // 2. 스크리닝. 부적격이면 좌석을 주지 않고 중립 안내만 한다.
@@ -493,7 +505,7 @@ function bookings_() {
     let slot = null, name = '';
     r.getItemResponses().forEach(ir => {
       const t = ir.getItem().getTitle();
-      if (t === SLOT_QUESTION_TITLE) slot = String(ir.getResponse());
+      if (t === SLOT_QUESTION_TITLE) slot = slotLabel_(ir.getResponse());
       if (t === Q_NAME) name = clean_(ir.getResponse());
     });
     if (!slot || slot === WAITLIST) return;
